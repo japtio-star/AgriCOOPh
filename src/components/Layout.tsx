@@ -1,12 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { LayoutDashboard, Users, Building2, FileText, Menu, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, Building2, FileText, Menu, LogOut, Bot } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('amds_user') || '{}');
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const handleLogout = () => {
     localStorage.removeItem('amds_token');
@@ -19,12 +20,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Member Directory', href: '/members', icon: Users },
     { name: 'Cooperative Units', href: '/cooperatives', icon: Building2 },
     { name: 'M&E Reports', href: '/reports', icon: FileText },
+    { name: 'Virtual Office', href: '/office', icon: Bot },
   ];
 
   return (
     <div className="flex h-screen w-full overflow-hidden">
+      {menuOpen && <div className="fixed inset-0 z-40 bg-slate-900/50 md:hidden" onClick={() => setMenuOpen(false)} />}
       {/* Sidebar */}
-      <aside className="w-60 bg-[#0F172A] text-slate-300 flex flex-col shrink-0 hidden md:flex">
+      <aside className={cn(
+        "w-60 bg-[#0F172A] text-slate-300 flex-col shrink-0 md:flex md:static",
+        menuOpen ? "fixed inset-y-0 left-0 z-50 flex" : "hidden"
+      )}>
         <div className="p-6 flex items-center gap-3 border-b border-slate-800 h-16 shrink-0">
           <div className="w-8 h-8 bg-emerald-500 rounded flex items-center justify-center font-bold text-white text-lg">A</div>
           <div className="leading-tight">
@@ -45,6 +51,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.name}
                 to={item.href}
+                onClick={() => setMenuOpen(false)}
                 className={cn(
                   "flex items-center px-6 py-3 text-sm transition-all duration-150 ease-in-out",
                   isActive 
@@ -81,9 +88,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Main content */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#F1F5F9]">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 shrink-0">
           <div className="flex items-center">
-            <button className="mr-4 text-slate-500 hover:text-slate-700 focus:outline-none md:hidden">
+            <button onClick={() => setMenuOpen(true)} aria-label="Open menu" className="mr-4 text-slate-500 hover:text-slate-700 focus:outline-none md:hidden">
               <Menu className="h-5 w-5" />
             </button>
             <div>
@@ -101,7 +108,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </header>
         
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-6">
           {children}
         </div>
 

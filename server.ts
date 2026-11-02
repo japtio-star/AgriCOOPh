@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -7,9 +6,15 @@ import cors from "cors";
 import path from "path";
 import multer from "multer";
 import fs from "fs";
+import dotenv from "dotenv";
+import { startWorkforce, workforceRouter } from "./server/workforce";
+
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 
 // Initialize SQLite database
-const db = new Database('amds.db', { verbose: console.log });
+const DB_FILE = 'amds.db';
+const db = new Database(DB_FILE, process.env.DEBUG_SQL ? { verbose: console.log } : {});
 
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
@@ -102,7 +107,8 @@ function initializeDatabase() {
     const coop2 = insertCoop.run('GreenFarmers Union', 'Quezon City, PH', 'Agricultural', '2021-03-10');
 
     const insertUser = db.prepare('INSERT INTO Users (name, email, password, role, coop_id) VALUES (?, ?, ?, ?, ?)');
-    const hashedPwd = bcrypt.hashSync('admin123', 10);
+    // Seed password; set ADMIN_PASSWORD on any public deployment.
+    const hashedPwd = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'admin123', 10);
     insertUser.run('Super Admin User', 'admin@agricooph.com', hashedPwd, 'Super Admin', null);
     insertUser.run('Coop Admin User 1', 'coop1@agricooph.com', hashedPwd, 'Cooperative Admin', coop1.lastInsertRowid);
     
@@ -118,6 +124,7 @@ function initializeDatabase() {
 }
 
 initializeDatabase();
+const workforce = startWorkforce(db, DB_FILE);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_123';
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
@@ -137,7 +144,7 @@ const upload = multer({ storage });
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(cors());
   app.use(express.json());
@@ -258,8 +265,13 @@ async function startServer() {
     res.json({ id: info.lastInsertRowid, file_path });
   });
 
+  // AI workforce: orchestration engine, tasks, approvals and live office stream
+  app.use('/api/workforce', workforceRouter(workforce, JWT_SECRET));
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    // Loaded only in development so the production bundle never pulls in Vite.
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

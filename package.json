@@ -9,11 +9,13 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "start": "node dist-server/server.cjs",
-    "build:server": "esbuild server.ts --bundle --platform=node --target=node18 --outfile=dist-server/server.cjs --format=cjs --external:better-sqlite3 --external:express",
+    "build:server": "esbuild server.ts --bundle --platform=node --target=node18 --outfile=dist-server/server.cjs --format=cjs --external:better-sqlite3 --external:express --external:vite",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
+    "@react-three/drei": "^10.7.6",
+    "@react-three/fiber": "^9.3.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "bcryptjs": "^3.0.3",
@@ -32,6 +34,7 @@
     "react-router": "^7.15.0",
     "recharts": "^3.8.1",
     "tailwind-merge": "^3.5.0",
+    "three": "^0.180.0",
     "vite": "^6.2.3"
   },
   "devDependencies": {
@@ -42,6 +45,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.1.0",
     "@types/node": "^22.14.0",
+    "@types/three": "^0.180.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.28.0",
     "tailwindcss": "^4.1.14",
