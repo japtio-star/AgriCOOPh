@@ -7,9 +7,15 @@ import cors from "cors";
 import path from "path";
 import multer from "multer";
 import fs from "fs";
+import dotenv from "dotenv";
+import { startWorkforce, workforceRouter } from "./server/workforce";
+
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 
 // Initialize SQLite database
-const db = new Database('amds.db', { verbose: console.log });
+const DB_FILE = 'amds.db';
+const db = new Database(DB_FILE, process.env.DEBUG_SQL ? { verbose: console.log } : {});
 
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
@@ -118,6 +124,7 @@ function initializeDatabase() {
 }
 
 initializeDatabase();
+const workforce = startWorkforce(db, DB_FILE);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_123';
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
@@ -257,6 +264,9 @@ async function startServer() {
     db.prepare('INSERT INTO AuditLogs (user_id, action) VALUES (?, ?)').run(req.user.id, `Submitted report ${info.lastInsertRowid}`);
     res.json({ id: info.lastInsertRowid, file_path });
   });
+
+  // AI workforce: orchestration engine, tasks, approvals and live office stream
+  app.use('/api/workforce', workforceRouter(workforce, JWT_SECRET));
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

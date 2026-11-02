@@ -18,3 +18,9 @@ View your app in AI Studio: https://ai.studio/apps/54604a5c-c493-4ffe-842e-006b9
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Virtual Office (AI workforce)
+
+Sign in as the Super Admin (`admin@agricooph.com` / `admin123` in the seed data) and open **Virtual Office** in the sidebar. Click **Commission implementation report** to watch twelve AI employees across six departments research the live database, hand off findings, meet, and ask you for approvals before publishing the report.
+
+See [docs/VIRTUAL_OFFICE.md](docs/VIRTUAL_OFFICE.md) for states, architecture, API and configuration.
