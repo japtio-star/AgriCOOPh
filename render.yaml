@@ -1,0 +1,21 @@
+# Render Blueprint: deploys the AgriCOOPh app with the AI workforce (Virtual Office).
+# Free plan: the service sleeps when idle and the SQLite database resets on each
+# restart or deploy (the programme evidence base is re-seeded automatically).
+services:
+  - type: web
+    name: agricooph
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build && npm run build:server
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        sync: false   # Render asks for this on first deploy; used for admin@agricooph.com
+      - key: GEMINI_API_KEY
+        sync: false   # optional; leave blank for the rule-based writer

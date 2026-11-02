@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -108,7 +107,8 @@ function initializeDatabase() {
     const coop2 = insertCoop.run('GreenFarmers Union', 'Quezon City, PH', 'Agricultural', '2021-03-10');
 
     const insertUser = db.prepare('INSERT INTO Users (name, email, password, role, coop_id) VALUES (?, ?, ?, ?, ?)');
-    const hashedPwd = bcrypt.hashSync('admin123', 10);
+    // Seed password; set ADMIN_PASSWORD on any public deployment.
+    const hashedPwd = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'admin123', 10);
     insertUser.run('Super Admin User', 'admin@agricooph.com', hashedPwd, 'Super Admin', null);
     insertUser.run('Coop Admin User 1', 'coop1@agricooph.com', hashedPwd, 'Cooperative Admin', coop1.lastInsertRowid);
     
@@ -144,7 +144,7 @@ const upload = multer({ storage });
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(cors());
   app.use(express.json());
@@ -270,6 +270,8 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    // Loaded only in development so the production bundle never pulls in Vite.
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

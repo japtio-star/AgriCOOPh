@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "start": "node dist-server/server.cjs",
-    "build:server": "esbuild server.ts --bundle --platform=node --target=node18 --outfile=dist-server/server.cjs --format=cjs --external:better-sqlite3 --external:express",
+    "build:server": "esbuild server.ts --bundle --platform=node --target=node18 --outfile=dist-server/server.cjs --format=cjs --external:better-sqlite3 --external:express --external:vite",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
