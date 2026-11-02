@@ -363,7 +363,7 @@ export function ReportModal({ id, version, onClose }: { id: number; version: str
 export function NewTaskModal({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [instructions, setInstructions] = useState('');
-  const [department, setDepartment] = useState<Department['id']>('membership');
+  const [department, setDepartment] = useState<Department['id']>('inclusion');
   const [requiresApproval, setRequiresApproval] = useState(true);
   const { run, pending, error } = useAction();
   const submit = async () => {
@@ -375,7 +375,7 @@ export function NewTaskModal({ onClose }: { onClose: () => void }) {
       <h3 className="text-base font-bold text-slate-900">Assign a task</h3>
       <p className="mt-1 text-xs text-slate-500">The next available employee in the department picks it up and works against the live database.</p>
       <label className="mt-4 block text-xs font-semibold text-slate-700">Title</label>
-      <input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500" placeholder="e.g. Summarise inactive members by cooperative" />
+      <input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500" placeholder="e.g. Which cooperatives lack sex-disaggregated records?" />
       <label className="mt-3 block text-xs font-semibold text-slate-700">Department</label>
       <select value={department} onChange={(e) => setDepartment(e.target.value as Department['id'])} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500">
         {DEPARTMENTS.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}

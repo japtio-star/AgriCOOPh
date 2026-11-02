@@ -197,18 +197,18 @@ function DepartmentZone({ dept, employees, deskIndex, onSelect, compact }: {
 
 function DepartmentProps({ id, color, x, z }: { id: DepartmentId; color: string; x: number; z: number }) {
   switch (id) {
-    case 'executive':
+    case 'pmo':
       return (<group><group position={[x - 2.5, 0, z]}><Shelf color={color} /></group><group position={[x + 2.2, 0, z]}><Whiteboard color={color} /></group><group position={[x + 4.6, 0, z]}><Plant /></group></group>);
-    case 'membership':
+    case 'inclusion':
+      return (<group><group position={[x - 1.8, 0, z]}><Whiteboard color={color} /></group><group position={[x + 2.4, 0, z]}><Plant scale={1.2} /></group><group position={[x + 3.8, 0, z]}><Plant /></group></group>);
+    case 'enterprise':
       return (<group><group position={[x - 2.6, 0, z]}><Shelf color={color} /></group><group position={[x - 0.6, 0, z]}><Shelf color={color} /></group><group position={[x + 3.6, 0, z]}><Plant scale={1.2} /></group></group>);
-    case 'coop_dev':
-      return (<group><group position={[x - 1.8, 0, z]}><Whiteboard color={color} /></group><group position={[x + 2.6, 0, z]}><Plant scale={1.3} /></group><group position={[x + 4.4, 0, z]}><Plant /></group></group>);
     case 'mne':
       return (<group><group position={[x - 1.5, 0, z]}><Whiteboard color={color} /></group><group position={[x + 2.5, 0, z]}><Shelf color={color} /></group></group>);
     case 'data':
-      return (<group><group position={[x - 2, 0, z]}><Whiteboard color={color} /></group><group position={[x + 2.2, 0, z]}><Whiteboard color="#38bdf8" /></group></group>);
-    case 'tech':
-      return (<group>{[-3, -2.2, -1.4].map((dx) => <group key={dx} position={[x + dx, 0, z]}><ServerRack /></group>)}<group position={[x + 3.6, 0, z]}><Plant /></group></group>);
+      return (<group>{[-3, -2.2].map((dx) => <group key={dx} position={[x + dx, 0, z]}><ServerRack /></group>)}<group position={[x + 1.8, 0, z]}><Whiteboard color={color} /></group></group>);
+    case 'extension':
+      return (<group>{[-3.4, -2.2, -1, 0.2].map((dx, i) => <group key={dx} position={[x + dx, 0, z]}><Plant scale={1.1 + (i % 2) * 0.3} /></group>)}<group position={[x + 3, 0, z]}><Whiteboard color={color} /></group></group>);
   }
 }
 

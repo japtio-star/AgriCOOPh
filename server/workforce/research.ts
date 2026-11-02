@@ -1,229 +1,178 @@
 import type Database from 'better-sqlite3';
-import fs from 'fs';
-import path from 'path';
 
-// Real research and analysis routines the AI employees run against the live
-// AgriCOOPh database and source tree. Every number in a report comes from here.
+// Research and analysis routines the AI employees run against the programme
+// evidence base (PrgIndicators, PrgCoopValues, PrgEvidence, PrgCoops,
+// PrgSources). Every figure in a report comes from these tables.
 
-const pct = (n: number, d: number) => (d ? Math.round((n / d) * 1000) / 10 : 0);
-
-function ageOf(birthdate: string | null): number | null {
-  if (!birthdate) return null;
-  const d = new Date(birthdate);
-  if (Number.isNaN(d.getTime())) return null;
-  const now = new Date();
-  let age = now.getFullYear() - d.getFullYear();
-  if (now.getMonth() < d.getMonth() || (now.getMonth() === d.getMonth() && now.getDate() < d.getDate())) age--;
-  return age >= 0 && age < 130 ? age : null;
+export interface IndicatorRow {
+  code: string; name: string; level: string; unit: 'count' | 'percent' | 'peso'; baseline: string;
+  v2024: number | null; v2025: number | null; target: number; target_kind: 'growth' | 'level' | 'count';
+  coverage: string; cov_full: number; cov_partial: number; cov_none: number; department: string; comment: string;
 }
+export interface EvidenceRow { id: number; coop: string; indicator: string; kind: string; text: string; source: string }
 
-// ---- Overview ---------------------------------------------------------------
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+export function fmt(value: number | null, unit: string): string {
+  if (value == null) return '—';
+  if (unit === 'peso') return value >= 1e6 ? `₱${round1(value / 1e6)}M` : `₱${Math.round(value).toLocaleString('en-US')}`;
+  if (unit === 'percent') return `${value}%`;
+  return Math.round(value).toLocaleString('en-US');
+}
 
 export function overview(db: Database.Database) {
-  const count = (t: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
+  const n = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
   return {
-    cooperatives: count('Cooperatives'),
-    members: count('Members'),
-    activeMembers: (db.prepare(`SELECT COUNT(*) AS n FROM Members WHERE status = 'Active'`).get() as { n: number }).n,
-    reports: count('Reports'),
-    activities: count('Activities'),
-    users: count('Users'),
+    indicators: n('SELECT COUNT(*) AS n FROM PrgIndicators'),
+    directIndicators: n(`SELECT COUNT(*) AS n FROM PrgIndicators WHERE coverage = 'Direct'`),
+    coops: n('SELECT COUNT(*) AS n FROM PrgCoops'),
+    coopsRecorded: n(`SELECT COUNT(*) AS n FROM PrgCoops WHERE endline_status = 'recorded'`),
+    evidence: n('SELECT COUNT(*) AS n FROM PrgEvidence'),
+    sources: n('SELECT COUNT(*) AS n FROM PrgSources'),
   };
 }
 
-// ---- Membership --------------------------------------------------------------
+// ---- Indicator research ----------------------------------------------------------
 
-export function researchMembers(db: Database.Database) {
-  const rows = db.prepare(
-    `SELECT m.id, m.name, m.birthdate, m.gender, m.contact, m.status, m.created_at, c.name AS coop
-     FROM Members m LEFT JOIN Cooperatives c ON c.id = m.coop_id`,
-  ).all() as any[];
-  return { rows, sources: ['Members', 'Cooperatives'] };
+export function researchIndicators(db: Database.Database, codes: string[]) {
+  const q = codes.map(() => '?').join(',');
+  const indicators = db.prepare(`SELECT * FROM PrgIndicators WHERE code IN (${q}) ORDER BY code`).all(...codes) as IndicatorRow[];
+  const evidence = db.prepare(`SELECT * FROM PrgEvidence WHERE indicator IN (${q}) ORDER BY indicator, coop`).all(...codes) as EvidenceRow[];
+  const coopValues = db.prepare(`SELECT * FROM PrgCoopValues WHERE indicator IN (${q}) ORDER BY indicator, coop`).all(...codes) as any[];
+  return { indicators, evidence, coopValues, rows: [...indicators, ...evidence], sources: ['PrgIndicators', 'PrgEvidence', 'PrgCoopValues'] };
 }
 
-export function analyzeMembers(rows: any[]) {
-  const total = rows.length;
-  const active = rows.filter((r) => r.status === 'Active').length;
-  const byGender: Record<string, number> = {};
-  const byCoop: Record<string, { total: number; active: number }> = {};
-  const ageBands: Record<string, number> = { 'Under 30': 0, '30-44': 0, '45-59': 0, '60+': 0, Unknown: 0 };
-  const ages: number[] = [];
-  for (const r of rows) {
-    const g = r.gender || 'Unspecified';
-    byGender[g] = (byGender[g] || 0) + 1;
-    const c = r.coop || 'Unassigned';
-    byCoop[c] ??= { total: 0, active: 0 };
-    byCoop[c].total++;
-    if (r.status === 'Active') byCoop[c].active++;
-    const a = ageOf(r.birthdate);
-    if (a == null) ageBands.Unknown++;
-    else {
-      ages.push(a);
-      ageBands[a < 30 ? 'Under 30' : a < 45 ? '30-44' : a < 60 ? '45-59' : '60+']++;
-    }
-  }
-  const avgAge = ages.length ? Math.round(ages.reduce((s, a) => s + a, 0) / ages.length) : null;
-  return {
-    total, active, inactive: total - active, activeRate: pct(active, total),
-    byGender, byCoop, ageBands, avgAge,
-    missingContact: rows.filter((r) => !r.contact).length,
-  };
+// Status follows the logframe workbook's own formulas, so figures match "as logged":
+// change = (2025 − 2024) / 2025, variance = change − Year-5 target.
+export function indicatorStatus(i: IndicatorRow) {
+  const change = i.v2024 != null && i.v2025 ? round1(((i.v2025 - i.v2024) / i.v2025) * 100) : null;
+  const variance = change != null && i.target_kind !== 'count' ? round1(change - i.target) : null;
+  let status: string;
+  if (i.v2025 == null) status = 'Not numeric';
+  else if (i.target_kind === 'growth') status = change != null && change >= i.target ? 'On or above target' : 'Below target';
+  else if (i.target_kind === 'level') status = i.v2025 >= i.target ? 'Attained' : 'Below target';
+  else status = i.v2025 >= i.target ? 'Attained' : `${Math.round((i.v2025 / i.target) * 100)}% of target`;
+  return { change, variance, status };
 }
 
-export function writeMembershipFallback(m: ReturnType<typeof analyzeMembers>) {
-  const lines = [
-    '## Membership Profile',
-    '',
-    `The federation has **${m.total}** registered members, of whom **${m.active}** are active (${m.activeRate}%) and ${m.inactive} inactive.` +
-      (m.avgAge != null ? ` The average member age is ${m.avgAge}.` : ''),
-    '',
-    '| Cooperative | Members | Active | Active rate |',
-    '|---|---|---|---|',
-    ...Object.entries(m.byCoop).map(([c, v]) => `| ${c} | ${v.total} | ${v.active} | ${pct(v.active, v.total)}% |`),
-    '',
-    `- Gender split: ${Object.entries(m.byGender).map(([g, n]) => `${g} ${n}`).join(', ') || 'no data'}.`,
-    `- Age bands: ${Object.entries(m.ageBands).filter(([, n]) => n).map(([b, n]) => `${b} ${n}`).join(', ') || 'no data'}.`,
-  ];
-  if (m.activeRate < 80) lines.push(`- Active rate is below the 80% benchmark; a re-engagement drive for inactive members is advised.`);
-  if (m.missingContact) lines.push(`- ${m.missingContact} member record(s) have no contact number.`);
-  return lines.join('\n');
-}
-
-// ---- Cooperatives -------------------------------------------------------------
-
-export function researchCooperatives(db: Database.Database) {
-  const rows = db.prepare(
-    `SELECT c.id, c.name, c.location, c.type, c.date_joined,
-       (SELECT COUNT(*) FROM Members m WHERE m.coop_id = c.id) AS members,
-       (SELECT COUNT(*) FROM Members m WHERE m.coop_id = c.id AND m.status = 'Active') AS active_members,
-       (SELECT COUNT(*) FROM Reports r WHERE r.coop_id = c.id) AS reports
-     FROM Cooperatives c ORDER BY c.name`,
-  ).all() as any[];
-  return { rows, sources: ['Cooperatives', 'Members', 'Reports'] };
-}
-
-export function analyzeCooperatives(rows: any[]) {
-  const byType: Record<string, number> = {};
-  const byLocation: Record<string, number> = {};
-  const now = Date.now();
-  const coops = rows.map((r) => {
-    byType[r.type || 'Unspecified'] = (byType[r.type || 'Unspecified'] || 0) + 1;
-    byLocation[r.location || 'Unspecified'] = (byLocation[r.location || 'Unspecified'] || 0) + 1;
-    const joined = r.date_joined ? new Date(r.date_joined).getTime() : NaN;
+export function analyzeIndicators(raw: ReturnType<typeof researchIndicators>) {
+  return raw.indicators.map((i) => {
+    const ev = raw.evidence.filter((e) => e.indicator === i.code);
     return {
-      name: r.name, location: r.location, members: r.members, active: r.active_members, reports: r.reports,
-      yearsInFederation: Number.isNaN(joined) ? null : Math.floor((now - joined) / (365.25 * 864e5)),
+      code: i.code, name: i.name, unit: i.unit, baseline: i.baseline, v2024: i.v2024, v2025: i.v2025,
+      target: i.target, targetKind: i.target_kind, coverage: i.coverage,
+      coverageCounts: { full: i.cov_full, partial: i.cov_partial, none: i.cov_none },
+      comment: i.comment,
+      ...indicatorStatus(i),
+      findings: ev.filter((e) => ['finding', 'example'].includes(e.kind)).map((e) => ({ coop: e.coop, text: e.text, source: e.source })),
+      adjacent: ev.filter((e) => e.kind === 'adjacent').map((e) => ({ coop: e.coop, text: e.text, source: e.source })),
+      constraints: ev.filter((e) => e.kind === 'constraint').map((e) => ({ coop: e.coop, text: e.text })),
+      gaps: ev.filter((e) => e.kind === 'gap').map((e) => ({ coop: e.coop, text: e.text })),
+      coopsWithEvidence: [...new Set(ev.filter((e) => ['finding', 'example', 'adjacent'].includes(e.kind)).map((e) => e.coop))],
+      coopValues2024: raw.coopValues.filter((v) => v.indicator === i.code).map((v) => ({ coop: v.coop, value: v.value })),
     };
   });
+}
+
+export type IndicatorAnalysis = ReturnType<typeof analyzeIndicators>;
+
+export function summarizeAnalysis(a: IndicatorAnalysis) {
+  const below = a.filter((x) => x.status === 'Below target').map((x) => x.code);
+  return `${a.length} indicators analysed (${below.length ? `${below.join(', ')} below target` : 'none below target'}), ` +
+    `${a.reduce((s, x) => s + x.findings.length + x.adjacent.length, 0)} endline findings`;
+}
+
+export function writeIndicatorSectionFallback(title: string, intro: string, a: IndicatorAnalysis) {
+  const out = [`## ${title}`, '', intro, '',
+    '| Indicator | 2024 | 2025 | Change (as logged) | Year-5 target | Status | Endline coverage |',
+    '|---|---|---|---|---|---|---|',
+    ...a.map((x) => `| ${x.code} ${x.name} | ${fmt(x.v2024, x.unit)} | ${fmt(x.v2025, x.unit)} | ${x.change != null ? `${x.change > 0 ? '+' : ''}${x.change}%` : '—'} | ${x.targetKind === 'count' ? x.target : `${x.target}%`} | ${x.status} | ${x.coverage}${x.coverage === 'Direct' ? ` (${x.coverageCounts.full} full, ${x.coverageCounts.partial} partial, ${x.coverageCounts.none} not captured)` : ''} |`),
+  ];
+  for (const x of a) {
+    out.push('', `### ${x.code} ${x.name}`, '');
+    if (x.findings.length) out.push(...x.findings.map((f) => `- **${f.coop}:** ${f.text}`));
+    if (x.adjacent.length) out.push(`- Related evidence recorded elsewhere: ${x.adjacent.map((f) => `${f.coop} (${f.text.replace(/\.$/, '')})`).join('; ')}.`);
+    if (x.constraints.length) out.push(`- Constraints named: ${x.constraints.map((c) => `${c.coop} — ${c.text.replace(/\.$/, '').toLowerCase()}`).join('; ')}.`);
+    if (x.gaps.length) out.push(`- Data gaps: ${x.gaps.map((g) => `${g.coop} — ${g.text.replace(/\.$/, '')}`).join('; ')}.`);
+    if (!x.findings.length && !x.adjacent.length && !x.gaps.length) out.push('- No endline evidence recorded for this indicator.');
+    if (x.comment) out.push('', `_Logframe comment (as logged): ${x.comment}_`);
+  }
+  return out.join('\n');
+}
+
+// ---- Whole-logframe status -----------------------------------------------------------
+
+export function researchLogframe(db: Database.Database) {
+  const all = (db.prepare('SELECT code FROM PrgIndicators ORDER BY code').all() as { code: string }[]).map((r) => r.code);
+  const raw = researchIndicators(db, all);
+  const coops = db.prepare('SELECT * FROM PrgCoops ORDER BY rowid').all() as any[];
+  return { ...raw, coops, sources: ['PrgIndicators', 'PrgEvidence', 'PrgCoops'] };
+}
+
+export function analyzeLogframe(raw: ReturnType<typeof researchLogframe>) {
+  const a = analyzeIndicators(raw);
+  const count = (s: string) => a.filter((x) => x.status === s).length;
   return {
-    total: rows.length, coops, byType, byLocation,
-    withoutMembers: coops.filter((c) => c.members === 0).map((c) => c.name),
-    withoutReports: coops.filter((c) => c.reports === 0).map((c) => c.name),
-    avgMembers: rows.length ? Math.round((coops.reduce((s, c) => s + c.members, 0) / rows.length) * 10) / 10 : 0,
+    indicators: a.map(({ findings, adjacent, constraints, gaps, coopValues2024, ...rest }) => ({ ...rest, evidenceItems: findings.length + adjacent.length })),
+    totals: {
+      indicators: a.length, onOrAbove: count('On or above target') + count('Attained'), below: count('Below target'),
+      notNumeric: count('Not numeric'), direct: a.filter((x) => x.coverage === 'Direct').length,
+      indirect: a.filter((x) => x.coverage === 'Indirect').length, notCovered: a.filter((x) => x.coverage === 'Not covered').length,
+    },
+    coops: raw.coops.map((c) => ({ code: c.code, location: c.location, dates: c.endline_dates, status: c.endline_status })),
+    indirect: analyzeIndicators({ ...raw, indicators: raw.indicators.filter((i) => i.coverage !== 'Direct') })
+      .map((x) => ({ code: x.code, name: x.name, evidence: [...x.findings, ...x.adjacent].map((f) => `${f.coop}: ${f.text}`) })),
   };
 }
 
-export function writeCoopFallback(a: ReturnType<typeof analyzeCooperatives>) {
-  const lines = [
-    '## Cooperative Portfolio',
+export function writeLogframeFallback(l: ReturnType<typeof analyzeLogframe>) {
+  const pending = l.coops.filter((c) => c.status !== 'recorded').map((c) => c.code);
+  return [
+    '## Logframe Status at Closing',
     '',
-    `The federation covers **${a.total}** cooperative(s) with an average of ${a.avgMembers} members each.`,
+    `Of the ${l.totals.indicators} logframe indicators, **${l.totals.onOrAbove}** are on or above their Year-5 target, **${l.totals.below}** are below it and ` +
+      `${l.totals.notNumeric} are not recorded as numbers. The endline assessed ${l.totals.direct} indicators directly, supports ${l.totals.indirect} indirectly ` +
+      `and did not cover ${l.totals.notCovered}. ${l.coops.length - pending.length} of ${l.coops.length} cooperatives have recorded endline data` +
+      (pending.length ? `; ${pending.join(', ')} is pending.` : '.'),
     '',
-    '| Cooperative | Location | Members | Active | Reports | Years in federation |',
-    '|---|---|---|---|---|---|',
-    ...a.coops.map((c) => `| ${c.name} | ${c.location ?? '—'} | ${c.members} | ${c.active} | ${c.reports} | ${c.yearsInFederation ?? '—'} |`),
+    '| Indicator | 2024 | 2025 | Change | Target | Variance (as logged) | Status |',
+    '|---|---|---|---|---|---|---|',
+    ...l.indicators.map((x) => `| ${x.code} ${x.name} | ${fmt(x.v2024, x.unit)} | ${fmt(x.v2025, x.unit)} | ${x.change != null ? `${x.change}%` : '—'} | ${x.targetKind === 'count' ? x.target : `${x.target}%`} | ${x.variance != null ? `${x.variance} pts` : '—'} | ${x.status} |`),
     '',
-    `- By type: ${Object.entries(a.byType).map(([t, n]) => `${t} ${n}`).join(', ')}.`,
-  ];
-  if (a.withoutMembers.length) lines.push(`- No members encoded yet: ${a.withoutMembers.join(', ')}.`);
-  if (a.withoutReports.length) lines.push(`- No M&E reports on file: ${a.withoutReports.join(', ')}.`);
-  return lines.join('\n');
+    '_Change and variance follow the workbook formula (change = (2025 − 2024) ÷ 2025; variance = change − target). For level indicators such as 1.1 and 1.2 the status compares the 2025 value with the target directly._',
+    '',
+    '### Indirect contributions (knowledge, funding, policy and platforms)',
+    '',
+    ...l.indirect.flatMap((x) => x.evidence.length ? [`- **${x.code} ${x.name}:** ${x.evidence.join(' ')}`] : [`- **${x.code} ${x.name}:** no endline mentions.`]),
+  ].join('\n');
 }
 
-// ---- Monitoring & Evaluation --------------------------------------------------
+// ---- Data reconciliation -------------------------------------------------------------
 
-export function researchReports(db: Database.Database) {
-  const rows = db.prepare(
-    `SELECT r.id, r.type, r.status, r.date_submitted, r.file_path, c.name AS coop
-     FROM Reports r LEFT JOIN Cooperatives c ON c.id = r.coop_id ORDER BY r.date_submitted DESC`,
-  ).all() as any[];
-  const coops = (db.prepare('SELECT name FROM Cooperatives').all() as { name: string }[]).map((c) => c.name);
-  return { rows, coops, sources: ['Reports', 'Cooperatives'] };
-}
-
-export function analyzeReports(rows: any[], coops: string[]) {
-  const byType: Record<string, number> = {};
-  const byStatus: Record<string, number> = {};
-  for (const r of rows) {
-    byType[r.type] = (byType[r.type] || 0) + 1;
-    byStatus[r.status] = (byStatus[r.status] || 0) + 1;
-  }
-  const required = ['CAPAR', 'CAIS'];
-  const gaps = coops.flatMap((coop) =>
-    required.filter((t) => !rows.some((r) => r.coop === coop && r.type === t)).map((t) => ({ coop, missing: t })),
-  );
-  const approved = byStatus['Approved'] || 0;
-  const latest = rows[0]?.date_submitted ?? null;
-  return {
-    total: rows.length, byType, byStatus, approvalRate: pct(approved, rows.length),
-    pending: rows.filter((r) => r.status !== 'Approved').length,
-    gaps, latest,
-    daysSinceLatest: latest ? Math.floor((Date.now() - new Date(latest).getTime()) / 864e5) : null,
-    compliance: pct(coops.length * required.length - gaps.length, coops.length * required.length),
-  };
-}
-
-export function writeMneFallback(a: ReturnType<typeof analyzeReports>) {
-  const lines = [
-    '## Monitoring & Evaluation Compliance',
-    '',
-    `**${a.total}** report(s) are on file; ${a.approvalRate}% are approved and ${a.pending} await review. ` +
-      `Required-report compliance (CAPAR + CAIS per cooperative) stands at **${a.compliance}%**.`,
-    '',
-    `- By type: ${Object.entries(a.byType).map(([t, n]) => `${t} ${n}`).join(', ') || 'none'}.`,
-    `- By status: ${Object.entries(a.byStatus).map(([t, n]) => `${t} ${n}`).join(', ') || 'none'}.`,
-  ];
-  if (a.latest) lines.push(`- Latest submission: ${a.latest} (${a.daysSinceLatest} days ago).`);
-  if (a.gaps.length) {
-    lines.push('', '| Cooperative | Missing report |', '|---|---|', ...a.gaps.map((g) => `| ${g.coop} | ${g.missing} |`));
-  }
-  return lines.join('\n');
-}
-
-// ---- Data quality -------------------------------------------------------------
-
-export interface QualityCheck {
-  name: string;
-  description: string;
-  sql: string;
-  author: 'catalog' | 'gemini';
-}
+export interface QualityCheck { name: string; description: string; sql: string; author: 'catalog' | 'gemini' }
 
 export const QUALITY_CATALOG: QualityCheck[] = [
-  { name: 'members_missing_birthdate', description: 'Members without a birthdate', author: 'catalog',
-    sql: `SELECT id, name FROM Members WHERE birthdate IS NULL OR trim(birthdate) = ''` },
-  { name: 'members_invalid_birthdate', description: 'Birthdates that are unparsable or in the future', author: 'catalog',
-    sql: `SELECT id, name, birthdate FROM Members WHERE birthdate IS NOT NULL AND trim(birthdate) <> '' AND (date(birthdate) IS NULL OR date(birthdate) > date('now'))` },
-  { name: 'members_missing_contact', description: 'Members without a contact number', author: 'catalog',
-    sql: `SELECT id, name FROM Members WHERE contact IS NULL OR trim(contact) = ''` },
-  { name: 'members_bad_contact_format', description: 'Contact numbers not in 09XXXXXXXXX mobile format', author: 'catalog',
-    sql: `SELECT id, name, contact FROM Members WHERE contact IS NOT NULL AND trim(contact) <> '' AND (length(contact) <> 11 OR substr(contact, 1, 2) <> '09')` },
-  { name: 'members_missing_gender', description: 'Members without a gender value', author: 'catalog',
-    sql: `SELECT id, name FROM Members WHERE gender IS NULL OR trim(gender) = ''` },
-  { name: 'duplicate_members', description: 'Possible duplicate members (same name within a cooperative)', author: 'catalog',
-    sql: `SELECT lower(trim(name)) AS name, coop_id, COUNT(*) AS copies FROM Members GROUP BY lower(trim(name)), coop_id HAVING COUNT(*) > 1` },
-  { name: 'reports_without_file', description: 'Reports submitted without an attached file', author: 'catalog',
-    sql: `SELECT id, type, coop_id FROM Reports WHERE file_path IS NULL OR trim(file_path) = ''` },
-  { name: 'coops_missing_location', description: 'Cooperatives without a location', author: 'catalog',
-    sql: `SELECT id, name FROM Cooperatives WHERE location IS NULL OR trim(location) = ''` },
+  { name: 'duplicated_indicator_series', author: 'catalog', description: 'Indicators whose 2024 and 2025 values are identical to another indicator',
+    sql: `SELECT a.code AS indicator, b.code AS same_as, a.v2024, a.v2025 FROM PrgIndicators a JOIN PrgIndicators b ON a.code < b.code AND a.v2024 = b.v2024 AND a.v2025 = b.v2025` },
+  { name: 'coop_value_exceeds_programme_total', author: 'catalog', description: "A single cooperative's 2024 value exceeds the programme total",
+    sql: `SELECT v.coop, v.indicator, v.value, i.v2024 AS programme_total FROM PrgCoopValues v JOIN PrgIndicators i ON i.code = v.indicator WHERE v.year = 2024 AND v.value > i.v2024` },
+  { name: 'coop_sum_differs_from_total', author: 'catalog', description: 'Sum of per-cooperative 2024 values differs from the logged total by more than 10%',
+    sql: `SELECT v.indicator, SUM(v.value) AS coop_sum, i.v2024 AS logged_total FROM PrgCoopValues v JOIN PrgIndicators i ON i.code = v.indicator WHERE v.year = 2024 GROUP BY v.indicator HAVING ABS(SUM(v.value) - i.v2024) > 0.1 * i.v2024` },
+  { name: 'zero_value_but_activity_described', author: 'catalog', description: 'Cooperative logged as zero although the endline describes activity',
+    sql: `SELECT v.coop, v.indicator FROM PrgCoopValues v WHERE v.year = 2024 AND v.value = 0 AND EXISTS (SELECT 1 FROM PrgEvidence e WHERE e.coop = v.coop AND e.indicator = v.indicator AND e.kind IN ('finding', 'example', 'adjacent'))` },
+  { name: 'value_without_endline_evidence', author: 'catalog', description: 'Cooperative has a logged value but no endline evidence to corroborate it',
+    sql: `SELECT v.coop, v.indicator, v.value FROM PrgCoopValues v WHERE v.year = 2024 AND v.value > 0 AND NOT EXISTS (SELECT 1 FROM PrgEvidence e WHERE e.coop = v.coop AND e.indicator = v.indicator AND e.kind IN ('finding', 'example', 'adjacent'))` },
+  { name: 'blank_coop_values', author: 'catalog', description: 'Per-cooperative values left blank in the workbook',
+    sql: `SELECT coop, indicator FROM PrgCoopValues WHERE value IS NULL` },
+  { name: 'direct_indicators_with_uncaptured_coops', author: 'catalog', description: 'Directly assessed indicators that some cooperatives did not capture',
+    sql: `SELECT code, name, cov_none AS coops_not_captured FROM PrgIndicators WHERE coverage = 'Direct' AND cov_none > 0` },
+  { name: 'pending_endline_coops', author: 'catalog', description: 'Cooperatives whose endline data are still pending',
+    sql: `SELECT code, name FROM PrgCoops WHERE endline_status <> 'recorded'` },
 ];
 
-// Schema shown to the model when it proposes extra checks. Credentials are left out.
 export function schemaForPrompt(db: Database.Database) {
-  const tables = ['Cooperatives', 'Members', 'Reports', 'Activities', 'Attendance', 'Documents'];
-  return tables.map((t) => {
-    const cols = (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string; type: string }[])
-      .map((c) => `${c.name} ${c.type}`);
+  return ['PrgIndicators', 'PrgCoopValues', 'PrgEvidence', 'PrgCoops'].map((t) => {
+    const cols = (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string; type: string }[]).map((c) => `${c.name} ${c.type}`);
     return `${t}(${cols.join(', ')})`;
   }).join('\n');
 }
@@ -236,8 +185,7 @@ export function validateCheck(readonlyDb: Database.Database, sql: string): strin
   if (/password|\bUsers\b|Agent[A-Z]/i.test(s)) return 'queries may not read credentials or workforce tables';
   if (!/^(select|with)\b/i.test(s)) return 'only SELECT queries are allowed';
   try {
-    const stmt = readonlyDb.prepare(s);
-    if (!stmt.reader) return 'statement does not return rows';
+    if (!readonlyDb.prepare(s).reader) return 'statement does not return rows';
   } catch (e: any) {
     return e.message;
   }
@@ -248,112 +196,53 @@ export function runChecks(readonlyDb: Database.Database, checks: QualityCheck[])
   return checks.map((c) => {
     try {
       const rows = readonlyDb.prepare(c.sql.trim().replace(/;+\s*$/, '')).all() as any[];
-      return { name: c.name, description: c.description, author: c.author, findings: rows.length, sample: rows.slice(0, 5) };
+      return { name: c.name, description: c.description, author: c.author, findings: rows.length, sample: rows.slice(0, 12) };
     } catch (e: any) {
-      return { name: c.name, description: c.description, author: c.author, findings: -1, error: e.message, sample: [] };
+      return { name: c.name, description: c.description, author: c.author, findings: -1, error: e.message, sample: [] as any[] };
     }
   });
 }
 
-export function scoreQuality(results: ReturnType<typeof runChecks>, totalRecords: number) {
+export function scoreQuality(results: ReturnType<typeof runChecks>) {
   const ran = results.filter((r) => r.findings >= 0);
-  const issues = ran.reduce((s, r) => s + r.findings, 0);
-  const passed = ran.filter((r) => r.findings === 0).length;
   return {
-    checksRun: ran.length, checksPassed: passed, issues,
-    score: ran.length ? Math.round((passed / ran.length) * 100) : null,
-    issueRatePerRecord: totalRecords ? Math.round((issues / totalRecords) * 100) / 100 : 0,
+    checksRun: ran.length,
+    checksPassed: ran.filter((r) => r.findings === 0).length,
+    issues: ran.reduce((s, r) => s + r.findings, 0),
   };
 }
 
-export function writeDataQualityFallback(results: ReturnType<typeof runChecks> | null, score: ReturnType<typeof scoreQuality> | null, declined: string | null) {
+export const unitOf = (indicator: string) => (indicator === '1.3' || indicator === '1.4' ? 'peso' : 'count');
+const describeRow = (r: any) => Object.entries(r).map(([k, v]) => `${k}: ${typeof v === 'number' ? fmt(v, unitOf(r.indicator)) : v}`).join(', ');
+
+export function writeReconciliationFallback(results: ReturnType<typeof runChecks> | null, score: ReturnType<typeof scoreQuality> | null, declined: string | null) {
   if (!results || !score) {
-    return [
-      '## Data Quality Audit',
+    return ['## Data Reconciliation', '',
+      `The reconciliation queries were prepared but **not executed**: the owner declined the request${declined ? ` ("${declined}")` : ''}. ` +
+        'Logframe figures are therefore unreconciled in this report.'].join('\n');
+  }
+  return [
+    '## Data Reconciliation',
+    '',
+    `${score.checksRun} automated checks ran on a read-only connection against the logframe values, per-cooperative values and endline evidence; ` +
+      `${score.checksPassed ? `${score.checksPassed} found nothing; ` : ''}${score.checksRun - score.checksPassed} flagged a total of ${score.issues} item(s) to reconcile before terminal figures are quoted.`,
+    '',
+    ...results.flatMap((r) => [
+      `### ${r.description}`,
       '',
-      `The data-quality checks were prepared but **not executed**: the owner declined the execution request${declined ? ` ("${declined}")` : ''}. ` +
-        'Data quality is therefore unverified for this reporting period.',
-    ].join('\n');
-  }
-  return [
-    '## Data Quality Audit',
-    '',
-    `${score.checksRun} automated checks ran against the live database on a read-only connection; ` +
-      `${score.checksPassed} passed (quality score **${score.score ?? '—'}%**) and ${score.issues} issue(s) were found.`,
-    '',
-    '| Check | Findings | Author |',
-    '|---|---|---|',
-    ...results.map((r) => `| ${r.description} | ${r.findings < 0 ? `error: ${r.error}` : r.findings} | ${r.author} |`),
+      r.findings < 0 ? `Check failed: ${r.error}` : r.findings === 0 ? 'No issues found.' : r.sample.map((s: any) => `- ${describeRow(s)}`).join('\n'),
+      '',
+    ]),
   ].join('\n');
 }
 
-// ---- System implementation audit ---------------------------------------------
+// ---- Department context for ad-hoc tasks -------------------------------------------
 
-export function researchSystem(db: Database.Database) {
-  const tables = (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).all() as { name: string }[])
-    .map((t) => ({ name: t.name, rows: (db.prepare(`SELECT COUNT(*) AS n FROM "${t.name}"`).get() as { n: number }).n }));
-  const audit = {
-    total: (db.prepare('SELECT COUNT(*) AS n FROM AuditLogs').get() as { n: number }).n,
-    last7Days: (db.prepare(`SELECT COUNT(*) AS n FROM AuditLogs WHERE timestamp >= datetime('now', '-7 days')`).get() as { n: number }).n,
-    topActions: db.prepare(
-      `SELECT CASE WHEN action LIKE 'Created member%' THEN 'Created member' WHEN action LIKE 'Submitted report%' THEN 'Submitted report' ELSE action END AS action, COUNT(*) AS n
-       FROM AuditLogs GROUP BY 1 ORDER BY n DESC LIMIT 5`,
-    ).all(),
-  };
-  return { tables, audit, sources: ['sqlite_master', 'AuditLogs', 'server.ts', 'src/pages'] };
-}
-
-const MODULES = [
-  { module: 'Members', table: 'Members', resource: '/api/members' },
-  { module: 'Cooperatives', table: 'Cooperatives', resource: '/api/cooperatives' },
-  { module: 'M&E Reports', table: 'Reports', resource: '/api/reports' },
-  { module: 'Activities', table: 'Activities', resource: '/api/activities' },
-  { module: 'Attendance', table: 'Attendance', resource: '/api/attendance' },
-  { module: 'Documents', table: 'Documents', resource: '/api/documents' },
-  { module: 'Audit Logs', table: 'AuditLogs', resource: '/api/audit' },
-];
-
-export function analyzeSystem(tables: { name: string; rows: number }[]) {
-  const root = process.cwd();
-  let routes: { method: string; path: string }[] = [];
-  let sourceAvailable = false;
-  const serverFile = path.join(root, 'server.ts');
-  if (fs.existsSync(serverFile)) {
-    sourceAvailable = true;
-    const src = fs.readFileSync(serverFile, 'utf8');
-    routes = [...src.matchAll(/app\.(get|post|put|patch|delete)\(\s*['"`]([^'"`]+)['"`]/g)]
-      .map((m) => ({ method: m[1].toUpperCase(), path: m[2] }))
-      .filter((r) => r.path.startsWith('/api/'));
-  }
-  const pagesDir = path.join(root, 'src', 'pages');
-  const pages = fs.existsSync(pagesDir) ? fs.readdirSync(pagesDir).filter((f) => f.endsWith('.tsx')).map((f) => f.replace('.tsx', '')) : [];
-  const coverage = MODULES.map((m) => {
-    const methods = [...new Set(routes.filter((r) => r.path === m.resource || r.path.startsWith(m.resource + '/')).map((r) => r.method))];
-    const rows = tables.find((t) => t.name === m.table)?.rows ?? 0;
-    const status = !sourceAvailable ? 'Unknown' : methods.length === 0 ? 'Schema only' : methods.length >= 4 ? 'Complete' : 'Partial';
-    return { module: m.module, rows, api: methods.join(', ') || '—', status };
-  });
-  const done = coverage.filter((c) => c.status === 'Complete' || c.status === 'Partial').length;
-  return { routes, pages, coverage, sourceAvailable, implementedPct: pct(done, coverage.length) };
-}
-
-export function writeSystemFallback(r: ReturnType<typeof researchSystem>, a: ReturnType<typeof analyzeSystem>) {
-  return [
-    '## System Implementation Status',
-    '',
-    `The platform exposes ${a.routes.length} API route(s) and ${a.pages.length} UI page(s) (${a.pages.join(', ')}). ` +
-      `${a.implementedPct}% of planned data modules have at least partial API support.`,
-    '',
-    '| Module | Records | API methods | Status |',
-    '|---|---|---|---|',
-    ...a.coverage.map((c) => `| ${c.module} | ${c.rows} | ${c.api} | ${c.status} |`),
-    '',
-    `- Audit log: ${r.audit.total} entries, ${r.audit.last7Days} in the last 7 days.`,
-    ...(a.coverage.some((c) => c.status === 'Schema only')
-      ? [`- Modules with tables but no API yet: ${a.coverage.filter((c) => c.status === 'Schema only').map((c) => c.module).join(', ')}.`]
-      : []),
-    ...(a.coverage.some((c) => c.status === 'Partial')
-      ? ['- Partial modules support read/create only; update and delete endpoints are still to be built.']
-      : []),
-  ].join('\n');
-}
+export const DEPARTMENT_INDICATORS: Record<string, string[]> = {
+  pmo: ['0.1A', '0.2A', '1.1', '1.2', '2.2'],
+  inclusion: ['0.1A', '0.1B', '0.1C', '0.2A', '0.2B'],
+  enterprise: ['1.1', '1.2', '1.3', '1.4'],
+  extension: ['2.1', '2.2'],
+  mne: ['0.3', '3.1', '3.2', '4.1', '4.2'],
+  data: ['0.1B', '0.2B', '1.3', '2.1', '2.2'],
+};

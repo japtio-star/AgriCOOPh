@@ -6,12 +6,12 @@ export const FLOOR = { width: 40, depth: 27 };
 export const ZONE = { width: 10.5, depth: 8.5 };
 
 export const ZONE_CENTERS: Record<DepartmentId, [number, number]> = {
-  executive: [-12.5, -7.6],
-  membership: [0, -7.6],
-  coop_dev: [12.5, -7.6],
+  pmo: [-12.5, -7.6],
+  inclusion: [0, -7.6],
+  enterprise: [12.5, -7.6],
   mne: [-12.5, 7.6],
   data: [0, 7.6],
-  tech: [12.5, 7.6],
+  extension: [12.5, 7.6],
 };
 
 export interface Seat {

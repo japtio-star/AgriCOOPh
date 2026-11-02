@@ -28,7 +28,7 @@ export type TaskStatus =
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
-export type DepartmentId = 'executive' | 'membership' | 'coop_dev' | 'mne' | 'data' | 'tech';
+export type DepartmentId = 'pmo' | 'inclusion' | 'enterprise' | 'extension' | 'mne' | 'data';
 
 export interface Department {
   id: DepartmentId;
@@ -38,50 +38,49 @@ export interface Department {
   mission: string;
 }
 
-// Six departments mapped to how an agricultural cooperative federation runs its
-// membership database programme.
+// Six departments mapped to the AgriCOOPh–CSA DGD Programme 2022–2026 logframe.
 export const DEPARTMENTS: Department[] = [
   {
-    id: 'executive',
-    name: 'Executive Office',
-    short: 'Executive',
+    id: 'pmo',
+    name: 'Programme Management Office',
+    short: 'PMO',
     color: '#6366f1',
-    mission: 'Plans projects, runs synthesis meetings and briefs the human owner.',
+    mission: 'Scopes the terminal report, chairs the synthesis meeting and briefs the human owner.',
   },
   {
-    id: 'membership',
-    name: 'Membership Services',
-    short: 'Membership',
+    id: 'inclusion',
+    name: 'Member Services & Inclusion',
+    short: 'Inclusion',
     color: '#10b981',
-    mission: 'Owns member records, member profiles and enrolment trends.',
+    mission: 'Outcomes 0.1A–0.2B: services reach, women, youth and member income.',
   },
   {
-    id: 'coop_dev',
-    name: 'Cooperative Development',
-    short: 'Coop Dev',
+    id: 'enterprise',
+    name: 'Enterprise & Finance',
+    short: 'Enterprise',
     color: '#f59e0b',
-    mission: 'Reviews the cooperative portfolio and field coverage.',
+    mission: 'Result 1: professionalism, funds access, purchases from members, patronage.',
+  },
+  {
+    id: 'extension',
+    name: 'Extension & Agroecology',
+    short: 'Extension',
+    color: '#84cc16',
+    mission: 'Result 2: extension services and agroecological practices.',
   },
   {
     id: 'mne',
     name: 'Monitoring & Evaluation',
     short: 'M&E',
     color: '#0ea5e9',
-    mission: 'Tracks CAPAR / CAIS report submission and compliance.',
+    mission: 'Logframe status, knowledge, policy and platforms, sources and methodology.',
   },
   {
     id: 'data',
-    name: 'Data & Analytics',
+    name: 'Data & Reconciliation',
     short: 'Data',
     color: '#a855f7',
-    mission: 'Writes and runs data-quality checks against the live database.',
-  },
-  {
-    id: 'tech',
-    name: 'Technology & Systems',
-    short: 'Tech',
-    color: '#ef4444',
-    mission: 'Audits the system build: schema, modules and usage.',
+    mission: 'Writes and runs reconciliation checks on logframe and cooperative values.',
   },
 ];
 

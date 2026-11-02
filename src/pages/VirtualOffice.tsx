@@ -64,7 +64,7 @@ export default function VirtualOffice() {
       <div className="flex flex-wrap items-center gap-3">
         <div className="mr-auto">
           <h1 className="text-lg font-bold text-slate-900">Virtual Office</h1>
-          <p className="text-xs text-slate-500">Live view of the AI workforce: every avatar mirrors its employee's real execution state.</p>
+          <p className="text-xs text-slate-500">AI workforce for the AgriCOOPh–CSA DGD Programme 2022–2026: every avatar mirrors its employee's real execution state.</p>
         </div>
         <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold',
           connection === 'live' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>
@@ -86,7 +86,7 @@ export default function VirtualOffice() {
               title={runningProject ? `Project #${runningProject.id} is in progress` : undefined}
             >
               <Briefcase className="h-3.5 w-3.5" />
-              {runningProject ? `Report #${runningProject.id} in progress` : 'Commission implementation report'}
+              {runningProject ? `Report #${runningProject.id} in progress` : 'Commission terminal report'}
             </button>
           </>
         )}

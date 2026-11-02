@@ -11,11 +11,24 @@ import type {
   ReportSummary,
   Task,
 } from '../../src/shared/workforce';
+import { initProgrammeSchema } from './program-data';
 
 // Persistence layer for the AI workforce: employees, projects, tasks,
 // approvals, activity events and published reports.
 
+// Bump when the roster or task model changes incompatibly; workforce tables are rebuilt.
+const SCHEMA_VERSION = 2;
+
 export function initWorkforceSchema(db: Database.Database) {
+  db.exec('CREATE TABLE IF NOT EXISTS AgentMeta (key TEXT PRIMARY KEY, value TEXT)');
+  const v = db.prepare(`SELECT value FROM AgentMeta WHERE key = 'schema_version'`).get() as { value: string } | undefined;
+  if (Number(v?.value ?? 0) !== SCHEMA_VERSION) {
+    db.exec(`
+      DROP TABLE IF EXISTS AgentApprovals; DROP TABLE IF EXISTS AgentEvents; DROP TABLE IF EXISTS AgentReports;
+      DROP TABLE IF EXISTS AgentTasks; DROP TABLE IF EXISTS AgentProjects; DROP TABLE IF EXISTS AgentEmployees;
+    `);
+    db.prepare(`INSERT OR REPLACE INTO AgentMeta (key, value) VALUES ('schema_version', ?)`).run(String(SCHEMA_VERSION));
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS AgentEmployees (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,6 +117,7 @@ export function initWorkforceSchema(db: Database.Database) {
   `);
 
   seedRoster(db);
+  initProgrammeSchema(db);
 }
 
 interface RosterEntry {
@@ -115,30 +129,30 @@ interface RosterEntry {
 }
 
 const ROSTER: RosterEntry[] = [
-  { code: 'exec-lead', name: 'Amihan Reyes', title: 'Chief of Staff', department: 'executive',
+  { code: 'pmo-lead', name: 'Amihan Reyes', title: 'Programme Manager', department: 'pmo',
     avatar: { skin: '#c68a5e', hair: '#1f1a17', hairStyle: 'bun', shirt: '#4f46e5', pants: '#1e293b', accessory: 'none' } },
-  { code: 'exec-pm', name: 'Dado Santos', title: 'Project Coordinator', department: 'executive',
+  { code: 'pmo-coord', name: 'Dado Santos', title: 'Project Coordinator', department: 'pmo',
     avatar: { skin: '#b97a4f', hair: '#2b2118', hairStyle: 'short', shirt: '#818cf8', pants: '#334155', accessory: 'headset' } },
-  { code: 'mem-lead', name: 'Liza Mercado', title: 'Membership Officer', department: 'membership',
+  { code: 'inc-lead', name: 'Liza Mercado', title: 'Gender & Youth Inclusion Officer', department: 'inclusion',
     avatar: { skin: '#d9a47a', hair: '#3b2a20', hairStyle: 'long', shirt: '#059669', pants: '#1f2937', accessory: 'none' } },
-  { code: 'mem-rec', name: 'Paolo Villanueva', title: 'Member Records Specialist', department: 'membership',
+  { code: 'inc-analyst', name: 'Paolo Villanueva', title: 'Member Services Analyst', department: 'inclusion',
     avatar: { skin: '#a8714a', hair: '#141414', hairStyle: 'buzz', shirt: '#34d399', pants: '#374151', accessory: 'glasses' } },
-  { code: 'coop-lead', name: 'Ramon Bautista', title: 'Cooperative Development Specialist', department: 'coop_dev',
+  { code: 'ent-lead', name: 'Ramon Bautista', title: 'Enterprise Development Officer', department: 'enterprise',
     avatar: { skin: '#9c6644', hair: '#262626', hairStyle: 'short', shirt: '#d97706', pants: '#292524', accessory: 'none' } },
-  { code: 'coop-field', name: 'Tess Navarro', title: 'Field Liaison', department: 'coop_dev',
+  { code: 'ent-analyst', name: 'Tess Navarro', title: 'Finance & Business Analyst', department: 'enterprise',
     avatar: { skin: '#e0b48c', hair: '#5a3825', hairStyle: 'curly', shirt: '#fbbf24', pants: '#44403c', accessory: 'none' } },
-  { code: 'mne-lead', name: 'Grace Lim', title: 'M&E Officer', department: 'mne',
-    avatar: { skin: '#f0c9a0', hair: '#0f0f0f', hairStyle: 'long', shirt: '#0284c7', pants: '#1e293b', accessory: 'glasses' } },
-  { code: 'mne-comp', name: 'Nonoy Aquino', title: 'Compliance Analyst', department: 'mne',
-    avatar: { skin: '#b5835a', hair: '#1c1c1c', hairStyle: 'short', shirt: '#38bdf8', pants: '#0f172a', accessory: 'none' } },
-  { code: 'data-lead', name: 'Bea Castillo', title: 'Data Analyst', department: 'data',
-    avatar: { skin: '#cf9a6e', hair: '#4a2c1d', hairStyle: 'bun', shirt: '#9333ea', pants: '#1f2937', accessory: 'glasses' } },
+  { code: 'ext-lead', name: 'Grace Lim', title: 'Agroecology Specialist', department: 'extension',
+    avatar: { skin: '#f0c9a0', hair: '#0f0f0f', hairStyle: 'long', shirt: '#65a30d', pants: '#1e293b', accessory: 'glasses' } },
+  { code: 'ext-analyst', name: 'Nonoy Aquino', title: 'Extension Services Analyst', department: 'extension',
+    avatar: { skin: '#b5835a', hair: '#1c1c1c', hairStyle: 'short', shirt: '#a3e635', pants: '#0f172a', accessory: 'none' } },
+  { code: 'mne-lead', name: 'Bea Castillo', title: 'M&E Officer', department: 'mne',
+    avatar: { skin: '#cf9a6e', hair: '#4a2c1d', hairStyle: 'bun', shirt: '#0284c7', pants: '#1f2937', accessory: 'glasses' } },
+  { code: 'mne-writer', name: 'Rina Torres', title: 'Knowledge & Reporting Officer', department: 'mne',
+    avatar: { skin: '#e3b088', hair: '#6b3e26', hairStyle: 'long', shirt: '#38bdf8', pants: '#374151', accessory: 'none' } },
   { code: 'data-eng', name: 'Migs Flores', title: 'Data Engineer', department: 'data',
     avatar: { skin: '#a0694a', hair: '#111111', hairStyle: 'curly', shirt: '#c084fc', pants: '#312e81', accessory: 'headset' } },
-  { code: 'tech-lead', name: 'Kai Domingo', title: 'Systems Engineer', department: 'tech',
-    avatar: { skin: '#c48b62', hair: '#222222', hairStyle: 'buzz', shirt: '#dc2626', pants: '#111827', accessory: 'headset' } },
-  { code: 'tech-doc', name: 'Rina Torres', title: 'Technical Writer', department: 'tech',
-    avatar: { skin: '#e3b088', hair: '#6b3e26', hairStyle: 'long', shirt: '#f87171', pants: '#374151', accessory: 'none' } },
+  { code: 'data-lead', name: 'Kai Domingo', title: 'Data Quality Analyst', department: 'data',
+    avatar: { skin: '#c48b62', hair: '#222222', hairStyle: 'buzz', shirt: '#9333ea', pants: '#111827', accessory: 'headset' } },
 ];
 
 function seedRoster(db: Database.Database) {
