@@ -20,7 +20,7 @@ export async function fetchAPI(endpoint: string, options: RequestInit = {}) {
   });
 
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
       localStorage.removeItem('amds_token');
       localStorage.removeItem('amds_user');
       window.location.href = '/login';

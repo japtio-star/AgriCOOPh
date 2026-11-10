@@ -7,6 +7,7 @@ import cors from "cors";
 import path from "path";
 import multer from "multer";
 import fs from "fs";
+import { initExecutive, registerExecutiveRoutes, isExec } from "./server/executive";
 
 // Initialize SQLite database
 const db = new Database('amds.db', { verbose: console.log });
@@ -31,8 +32,9 @@ function initializeDatabase() {
       name TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
-      role TEXT CHECK(role IN ('Super Admin', 'Cooperative Admin', 'Data Encoder', 'Viewer')) NOT NULL,
+      role TEXT CHECK(role IN ('Super Admin', 'Executive', 'Department Head', 'Cooperative Admin', 'Data Encoder', 'Viewer')) NOT NULL,
       coop_id INTEGER,
+      dept_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(coop_id) REFERENCES Cooperatives(id)
     );
@@ -118,6 +120,7 @@ function initializeDatabase() {
 }
 
 initializeDatabase();
+initExecutive(db);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_123';
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
@@ -152,7 +155,7 @@ async function startServer() {
     if (token == null) return res.sendStatus(401);
 
     jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
-      if (err) return res.sendStatus(403);
+      if (err) return res.sendStatus(401);
       req.user = user;
       next();
     });
@@ -168,11 +171,11 @@ async function startServer() {
     const validPassword = bcrypt.compareSync(password, user.password);
     if (!validPassword) return res.status(400).json({ error: 'Invalid password.' });
 
-    const token = jwt.sign({ id: user.id, role: user.role, coop_id: user.coop_id }, JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign({ id: user.id, role: user.role, coop_id: user.coop_id, dept_id: user.dept_id }, JWT_SECRET, { expiresIn: '24h' });
     
     db.prepare('INSERT INTO AuditLogs (user_id, action) VALUES (?, ?)').run(user.id, 'User logged in');
 
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, coop_id: user.coop_id } });
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, coop_id: user.coop_id, dept_id: user.dept_id } });
   });
 
   // Dashboard Summary
@@ -180,7 +183,7 @@ async function startServer() {
     const user = req.user;
     let coopQuery = '';
     let params: any[] = [];
-    if (user.role !== 'Super Admin' && user.coop_id) {
+    if (!isExec(user) && user.coop_id) {
       coopQuery = 'WHERE coop_id = ?';
       params.push(user.coop_id);
     }
@@ -195,7 +198,7 @@ async function startServer() {
       totalMembers,
       activeMembers,
       inactiveMembers: totalMembers - activeMembers,
-      totalCoops: user.role === 'Super Admin' ? totalCoops : 1,
+      totalCoops: isExec(user) ? totalCoops : 1,
       genderDistribution: genderDist
     });
   });
@@ -203,7 +206,7 @@ async function startServer() {
   // Members API
   app.get('/api/members', authenticateToken, (req: any, res) => {
     const user = req.user;
-    if (user.role === 'Super Admin') {
+    if (isExec(user)) {
       const members = db.prepare('SELECT m.*, c.name as coop_name FROM Members m LEFT JOIN Cooperatives c ON m.coop_id = c.id').all();
       res.json(members);
     } else {
@@ -228,7 +231,7 @@ async function startServer() {
   });
 
   app.post('/api/cooperatives', authenticateToken, (req: any, res) => {
-    if (req.user.role !== 'Super Admin') return res.status(403).json({ error: 'Unauthorized' });
+    if (!isExec(req.user)) return res.status(403).json({ error: 'Unauthorized' });
     const { name, location, type, date_joined } = req.body;
     const info = db.prepare('INSERT INTO Cooperatives (name, location, type, date_joined) VALUES (?, ?, ?, ?)')
       .run(name, location, type, date_joined);
@@ -238,7 +241,7 @@ async function startServer() {
   // Reports API
   app.get('/api/reports', authenticateToken, (req: any, res) => {
     const user = req.user;
-    if (user.role === 'Super Admin') {
+    if (isExec(user)) {
       const reports = db.prepare('SELECT r.*, c.name as coop_name FROM Reports r LEFT JOIN Cooperatives c ON r.coop_id = c.id').all();
       res.json(reports);
     } else {
@@ -257,6 +260,9 @@ async function startServer() {
     db.prepare('INSERT INTO AuditLogs (user_id, action) VALUES (?, ?)').run(req.user.id, `Submitted report ${info.lastInsertRowid}`);
     res.json({ id: info.lastInsertRowid, file_path });
   });
+
+  // Executive management layer (CEO command center, departments, issues, decisions)
+  registerExecutiveRoutes(app, db, authenticateToken);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

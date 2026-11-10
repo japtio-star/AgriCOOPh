@@ -105,6 +105,8 @@ export default function Login() {
           <div className="mt-8 border-t border-slate-100 pt-6">
             <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Test Accounts:</h4>
             <ul className="text-xs text-slate-500 space-y-2">
+              <li className="flex justify-between"><span>CEO:</span> <code className="bg-slate-100 px-2 py-1 rounded text-slate-700 font-mono">ceo@agricooph.com</code></li>
+              <li className="flex justify-between"><span>SMS Unit Head:</span> <code className="bg-slate-100 px-2 py-1 rounded text-slate-700 font-mono">sms.head@agricooph.com</code></li>
               <li className="flex justify-between"><span>Super Admin:</span> <code className="bg-slate-100 px-2 py-1 rounded text-slate-700 font-mono">admin@agricooph.com</code></li>
               <li className="flex justify-between"><span>Coop Admin:</span> <code className="bg-slate-100 px-2 py-1 rounded text-slate-700 font-mono">coop1@agricooph.com</code></li>
             </ul>

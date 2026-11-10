@@ -1,7 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router';
 
-export function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode, requiredRole?: string }) {
+export function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode, requiredRole?: string | string[] }) {
   const token = localStorage.getItem('amds_token');
   const user = JSON.parse(localStorage.getItem('amds_user') || 'null');
   const location = useLocation();
@@ -10,7 +10,8 @@ export function ProtectedRoute({ children, requiredRole }: { children: React.Rea
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (requiredRole && user.role !== requiredRole && user.role !== 'Super Admin') {
+  const allowed = requiredRole ? (Array.isArray(requiredRole) ? requiredRole : [requiredRole]) : null;
+  if (allowed && !allowed.includes(user.role) && user.role !== 'Super Admin') {
     return <Navigate to="/" replace />;
   }
 
