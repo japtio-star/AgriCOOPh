@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router';
 import { LayoutDashboard, Users, Building2, FileText, Menu, LogOut, Gauge, Network, AlertTriangle, BookOpenCheck, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { isExecutive } from '../lib/exec';
+import { DEMO, session } from '../lib/session';
 
 type NavItem = { name: string; href: string; icon: any };
 
@@ -64,14 +65,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const user = JSON.parse(localStorage.getItem('amds_user') || '{}');
+  const user = session.user() || {};
   const groups = navFor(user);
   let [title, subtitle] = titleFor(location.pathname);
   if (location.pathname === '/' && !isExecutive(user)) [title, subtitle] = ['Dashboard Overview', 'Real-time data aggregation across cooperatives'];
 
   const handleLogout = () => {
-    localStorage.removeItem('amds_token');
-    localStorage.removeItem('amds_user');
+    session.clear();
     navigate('/login');
   };
 
@@ -152,6 +152,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
+        {DEMO && (
+          <div className="bg-amber-50 border-b border-amber-200 text-amber-900 text-[11px] px-4 md:px-8 py-2 shrink-0">
+            Preview with sample data. Changes you make here are not saved.
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-6">
           {children}
         </div>

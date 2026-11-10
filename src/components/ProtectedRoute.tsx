@@ -1,9 +1,10 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router';
+import { session } from '../lib/session';
 
 export function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode, requiredRole?: string | string[] }) {
-  const token = localStorage.getItem('amds_token');
-  const user = JSON.parse(localStorage.getItem('amds_user') || 'null');
+  const token = session.token();
+  const user = session.user();
   const location = useLocation();
 
   if (!token || !user) {

@@ -8,3 +8,5 @@ coverage/
 !.env.example
 amds.db
 uploads/
+dist-demo/
+src/demo-data.json

@@ -10,7 +10,9 @@
     "clean": "rm -rf dist",
     "start": "node dist-server/server.cjs",
     "build:server": "esbuild server.ts --bundle --platform=node --target=node18 --outfile=dist-server/server.cjs --format=cjs --external:better-sqlite3 --external:express",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "demo:capture": "node scripts/capture-demo.mjs",
+    "build:demo": "VITE_DEMO=1 vite build --base ./ --outDir dist-demo"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

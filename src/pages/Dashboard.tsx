@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { fetchAPI } from '../lib/utils';
+import { session } from '../lib/session';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 export default function Dashboard() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const user = JSON.parse(localStorage.getItem('amds_user') || '{}');
+  const user = session.user() || {};
 
   useEffect(() => {
     fetchAPI('/dashboard')

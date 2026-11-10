@@ -2,10 +2,11 @@ import type React from 'react';
 import { useEffect } from 'react';
 import { CheckCircle2, AlertTriangle, XCircle, MinusCircle, Clock } from 'lucide-react';
 import { cn } from './utils';
+import { session } from './session';
 
 export type Status = 'on-track' | 'at-risk' | 'off-track' | 'no-data' | 'no-update';
 
-export const currentUser = () => JSON.parse(localStorage.getItem('amds_user') || '{}');
+export const currentUser = () => session.user() || {};
 export const isExecutive = (user: any) => user?.role === 'Super Admin' || user?.role === 'Executive';
 
 // Reserved status colors. Always shown with an icon and a label, never color alone.

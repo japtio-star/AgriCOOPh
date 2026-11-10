@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router';
+import { DEMO, session } from '../lib/session';
+import { demoUsers } from '../lib/demo';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -26,8 +28,7 @@ export default function Login() {
         throw new Error(data.error || 'Login failed');
       }
 
-      localStorage.setItem('amds_token', data.token);
-      localStorage.setItem('amds_user', JSON.stringify(data.user));
+      session.save(data.token, data.user);
       navigate('/');
     } catch (err: any) {
       setError(err.message);
@@ -48,7 +49,31 @@ export default function Login() {
         </p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+      {DEMO && (
+        <div className="mt-8 mx-4 sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="bg-white py-8 px-6 shadow-sm rounded-xl sm:px-10 border border-slate-200 space-y-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Preview with sample data</h3>
+              <p className="text-xs text-slate-500 mt-1">Choose whose view to open. Changes are not saved in this preview.</p>
+            </div>
+            {demoUsers.map((u) => (
+              <button
+                key={u.email}
+                type="button"
+                onClick={() => { session.save('demo', u); navigate('/'); }}
+                className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <div className="text-sm font-bold text-slate-900">{u.role === 'Executive' ? 'CEO view' : 'SMS Unit Head view'}</div>
+                <div className="text-[11px] text-slate-500">
+                  {u.role === 'Executive' ? 'Command Center, all departments, issues and decision log' : 'Only the Supply & Marketing department: monthly update and issues'}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className={DEMO ? 'hidden' : 'mt-8 sm:mx-auto sm:w-full sm:max-w-md'}>
         <div className="bg-white py-8 px-4 shadow-sm sm:rounded-xl sm:px-10 border border-slate-200">
           <form className="space-y-6" onSubmit={handleLogin}>
             {error && (

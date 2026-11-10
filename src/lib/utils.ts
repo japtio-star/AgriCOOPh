@@ -1,5 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { DEMO, session } from './session';
+import { demoFetch } from './demo';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -7,7 +9,8 @@ export function cn(...inputs: ClassValue[]) {
 
 // Utility to fetch API
 export async function fetchAPI(endpoint: string, options: RequestInit = {}) {
-  const token = localStorage.getItem('amds_token');
+  if (DEMO) return demoFetch(endpoint, options);
+  const token = session.token();
   const headers = {
     'Content-Type': 'application/json',
     ...options.headers,
@@ -21,8 +24,7 @@ export async function fetchAPI(endpoint: string, options: RequestInit = {}) {
 
   if (!response.ok) {
     if (response.status === 401) {
-      localStorage.removeItem('amds_token');
-      localStorage.removeItem('amds_user');
+      session.clear();
       window.location.href = '/login';
     }
     const errorData = await response.json().catch(() => ({}));

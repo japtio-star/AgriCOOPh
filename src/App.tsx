@@ -4,7 +4,8 @@
  */
 
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
+import { BrowserRouter, MemoryRouter, Routes, Route, Navigate } from 'react-router';
+import { DEMO } from './lib/session';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Members from './pages/Members';
@@ -20,6 +21,8 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { currentUser, isExecutive } from './lib/exec';
 
 const EXEC = ['Executive', 'Super Admin'];
+// The static preview has no server to serve page URLs, so it keeps routes in memory.
+const Router = DEMO ? MemoryRouter : BrowserRouter;
 
 // Home depends on role: CEO sees the command center, unit heads their department.
 function Home() {
@@ -39,7 +42,7 @@ function page(element: React.ReactNode, roles?: string[]) {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <Router>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={page(<Home />)} />
@@ -52,6 +55,6 @@ export default function App() {
         <Route path="/cooperatives" element={page(<Cooperatives />, EXEC)} />
         <Route path="/reports" element={page(<Reports />)} />
       </Routes>
-    </BrowserRouter>
+    </Router>
   );
 }
