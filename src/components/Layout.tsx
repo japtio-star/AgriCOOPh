@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { LayoutDashboard, Users, Building2, FileText, Menu, LogOut, Gauge, Network, AlertTriangle, BookOpenCheck, X } from 'lucide-react';
-import { cn } from '../lib/utils';
-import { isExecutive } from '../lib/exec';
+import { cn, fetchAPI } from '../lib/utils';
+import { isExecutive, STATUS_META, serviceColor } from '../lib/exec';
 import { DEMO, session } from '../lib/session';
 
 type NavItem = { name: string; href: string; icon: any };
@@ -14,7 +14,7 @@ function navFor(user: any): { section: string; items: NavItem[] }[] {
         section: 'Executive',
         items: [
           { name: 'Command Center', href: '/', icon: Gauge },
-          { name: 'Departments', href: '/departments', icon: Network },
+          { name: 'All Departments', href: '/departments', icon: Network },
           { name: 'Issues', href: '/issues', icon: AlertTriangle },
           { name: 'Decision Log', href: '/decisions', icon: BookOpenCheck },
         ],
@@ -49,6 +49,63 @@ function navFor(user: any): { section: string; items: NavItem[] }[] {
   }];
 }
 
+// Kept between page changes so the sidebar list doesn't flicker while it refreshes.
+let deptCache: { departments: any[]; settings: any } | null = null;
+
+function useDepartments(enabled: boolean) {
+  const [data, setData] = useState(deptCache);
+  useEffect(() => {
+    if (!enabled) return;
+    fetchAPI('/exec/departments')
+      .then((d) => { deptCache = d; setData(d); })
+      .catch(() => {});
+  }, [enabled]);
+  return data;
+}
+
+// Every department in the sidebar, with its status for the latest month.
+function DepartmentNav({ data, pathname, onNavigate }: { data: { departments: any[]; settings: any }; pathname: string; onNavigate: () => void }) {
+  const groups = [
+    { section: `Income services · ${data.settings?.coo_name ? 'COO' : 'COO vacant'}`, rows: data.departments.filter((d) => d.category === 'Income') },
+    { section: 'Support units · CEO', rows: data.departments.filter((d) => d.category === 'Support') },
+  ];
+  return (
+    <>
+      {groups.map((g) => g.rows.length > 0 && (
+        <div key={g.section} className="mb-2">
+          <div className="px-6 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">{g.section}</div>
+          {g.rows.map((d) => {
+            const href = `/departments/${d.id}`;
+            const isActive = pathname === href;
+            const meta = STATUS_META[d.status as keyof typeof STATUS_META] || STATUS_META['no-data'];
+            return (
+              <Link
+                key={d.id}
+                to={href}
+                onClick={onNavigate}
+                title={`${d.name}: ${meta.label}${d.openIssues ? ` · ${d.openIssues} open issue(s)` : ''}`}
+                className={cn(
+                  'flex items-center gap-2.5 pl-6 pr-4 py-1.5 text-[13px] leading-snug transition-colors',
+                  isActive ? 'bg-[#1E293B] border-l-4 border-emerald-500 text-white' : 'text-slate-300 hover:bg-[#1E293B] border-l-4 border-transparent'
+                )}
+              >
+                {d.category === 'Income'
+                  ? <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: serviceColor(d.code) }} aria-hidden />
+                  : <span className="w-2 h-2 shrink-0" aria-hidden />}
+                <span className="flex-1 min-w-0">{d.name}</span>
+                {d.openIssues > 0 && (
+                  <span className="text-[10px] font-bold tabular-nums text-slate-300 bg-slate-700/70 rounded px-1.5" aria-label={`${d.openIssues} open issues`}>{d.openIssues}</span>
+                )}
+                <meta.Icon className="w-3.5 h-3.5 shrink-0" style={{ color: meta.color }} aria-label={meta.label} />
+              </Link>
+            );
+          })}
+        </div>
+      ))}
+    </>
+  );
+}
+
 function titleFor(path: string): [string, string] {
   if (path === '/') return ['Command Center', 'One view of all services and support units'];
   if (path === '/departments') return ['Departments', 'Income services and support units'];
@@ -67,6 +124,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const user = session.user() || {};
   const groups = navFor(user);
+  const exec = isExecutive(user);
+  const depts = useDepartments(exec);
   let [title, subtitle] = titleFor(location.pathname);
   if (location.pathname === '/' && !isExecutive(user)) [title, subtitle] = ['Dashboard Overview', 'Real-time data aggregation across cooperatives'];
 
@@ -76,7 +135,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   };
 
   const sidebar = (
-    <aside className="w-60 h-full bg-[#0F172A] text-slate-300 flex flex-col shrink-0">
+    <aside className="w-64 h-full bg-[#0F172A] text-slate-300 flex flex-col shrink-0">
       <div className="p-6 flex items-center gap-3 border-b border-slate-800 h-16 shrink-0">
         <div className="w-8 h-8 bg-emerald-500 rounded flex items-center justify-center font-bold text-white text-lg">A</div>
         <div className="leading-tight flex-1">
@@ -87,12 +146,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </div>
 
       <nav className="flex-1 py-4 overflow-y-auto custom-scrollbar">
-        {groups.map((g) => (
-          <div key={g.section} className="mb-2">
+        {groups.map((g, gi) => (
+          <React.Fragment key={g.section}>
+          <div className="mb-2">
             <div className="px-6 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">{g.section}</div>
             {g.items.map((item) => {
               const Icon = item.icon;
-              const isActive = location.pathname === item.href || (item.href !== '/' && location.pathname.startsWith(item.href + '/'));
+              const isActive = location.pathname === item.href || (item.href !== '/' && item.href !== '/departments' && location.pathname.startsWith(item.href + '/'));
               return (
                 <Link
                   key={item.name}
@@ -109,6 +169,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               );
             })}
           </div>
+          {exec && gi === 0 && depts && <DepartmentNav data={depts} pathname={location.pathname} onNavigate={() => setOpen(false)} />}
+          </React.Fragment>
         ))}
       </nav>
 
