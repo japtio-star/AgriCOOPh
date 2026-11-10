@@ -63,9 +63,13 @@ export default function Login() {
                 onClick={() => { session.save('demo', u); navigate('/'); }}
                 className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
-                <div className="text-sm font-bold text-slate-900">{u.role === 'Executive' ? 'CEO view' : 'SMS Unit Head view'}</div>
+                <div className="text-sm font-bold text-slate-900">{u.role === 'Executive' ? 'CEO view' : `${u.name} view`}</div>
                 <div className="text-[11px] text-slate-500">
-                  {u.role === 'Executive' ? 'Command Center, all departments, issues and decision log' : 'Only the Supply & Marketing department: monthly update and issues'}
+                  {u.role === 'Executive'
+                    ? 'Command Center, all departments, issues and decision log'
+                    : u.email.startsWith('km.')
+                      ? 'Knowledge Management only: library, dissemination, requests, prices, data quality'
+                      : 'Supply & Marketing only: monthly update and issues'}
                 </div>
               </button>
             ))}
@@ -132,6 +136,7 @@ export default function Login() {
             <ul className="text-xs text-slate-500 space-y-2">
               <li className="flex justify-between"><span>CEO:</span> <code className="bg-slate-100 px-2 py-1 rounded text-slate-700 font-mono">ceo@agricooph.com</code></li>
               <li className="flex justify-between"><span>SMS Unit Head:</span> <code className="bg-slate-100 px-2 py-1 rounded text-slate-700 font-mono">sms.head@agricooph.com</code></li>
+              <li className="flex justify-between"><span>KM Unit Head:</span> <code className="bg-slate-100 px-2 py-1 rounded text-slate-700 font-mono">km.head@agricooph.com</code></li>
               <li className="flex justify-between"><span>Super Admin:</span> <code className="bg-slate-100 px-2 py-1 rounded text-slate-700 font-mono">admin@agricooph.com</code></li>
               <li className="flex justify-between"><span>Coop Admin:</span> <code className="bg-slate-100 px-2 py-1 rounded text-slate-700 font-mono">coop1@agricooph.com</code></li>
             </ul>

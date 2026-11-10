@@ -9,6 +9,7 @@ import {
   inputCls, btnPrimary, btnSecondary, CHART,
 } from '../lib/exec';
 import { IssueForm, IssueRow } from './Issues';
+import { KM_TABS, KMTab } from './km/KnowledgeManagement';
 
 export default function DepartmentDetail() {
   const { id } = useParams();
@@ -19,19 +20,28 @@ export default function DepartmentDetail() {
   const user = currentUser();
   const exec = isExecutive(user);
   const period = params.get('period') || '';
+  const tab = params.get('tab') || 'overview';
+  const [departments, setDepartments] = useState<any[]>([]);
 
   const load = () =>
     fetchAPI(`/exec/departments/${id}${period ? `?period=${period}` : ''}`)
       .then((d) => { setData(d); setError(''); })
       .catch((e) => setError(e.message));
   useEffect(() => { load(); }, [id, period]);
+  useEffect(() => { fetchAPI('/exec/departments').then((x) => setDepartments(x.departments)).catch(() => {}); }, []);
 
   if (error) return <div className="text-sm text-red-600">{error}</div>;
   if (!data) return <div className="text-slate-500 text-sm">Loading department...</div>;
 
   const d = data.department;
   const periods = data.financials.map((f: any) => f.period).reverse();
-  const isIncome = d.category === 'Income';
+  // Which money figures this department reports (support units track none).
+  const hasRevenue = d.finance_tracking === 'revenue_expenses';
+  const showFin = d.finance_tracking !== 'none';
+  const isIncome = hasRevenue;
+  // Departments with their own tools get tabs; KM is the first.
+  const tabs = d.code === 'KM' ? [{ id: 'overview', label: 'Overview' }, ...KM_TABS] : null;
+  const setTab = (t: string) => setParams(t === 'overview' ? (period ? { period } : {}) : { tab: t });
   const close = (reload = false) => { setModal(null); if (reload) load(); };
   const fin = data.financials.map((f: any) => ({ ...f, label: periodLabel(f.period, true) }));
 
@@ -52,13 +62,28 @@ export default function DepartmentDetail() {
           <p className="mt-2 text-xs text-slate-700 max-w-2xl">{d.mandate}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <PeriodSelect value={data.period} periods={periods} onChange={(p) => setParams({ period: p })} />
+          {tab === 'overview' && <PeriodSelect value={data.period} periods={periods} onChange={(p) => setParams({ period: p })} />}
           <button className={btnPrimary} onClick={() => setModal('update')}><Send className="w-3 h-3 mr-2" /> Monthly update</button>
           {exec && <button className={btnSecondary} onClick={() => setModal('kpis')}><Settings2 className="w-3 h-3 mr-2" /> KPIs & targets</button>}
           {exec && <button className={btnSecondary} onClick={() => setModal('edit')}><Pencil className="w-3 h-3 mr-2" /> Edit</button>}
         </div>
       </div>
 
+      {tabs && (
+        <div className="border-b border-slate-200 -mt-2 overflow-x-auto">
+          <nav className="flex gap-1 min-w-max" aria-label="Department sections">
+            {tabs.map((t) => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={cn('px-3 py-2 text-xs font-bold border-b-2 -mb-px transition-colors',
+                  tab === t.id ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500 hover:text-slate-800')}>
+                {t.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+      )}
+
+      {tabs && tab !== 'overview' ? <KMTab tab={tab} departments={departments} /> : (<>
       {!d.submitted && (
         <div className="bg-amber-50 border border-amber-100 text-amber-900 rounded-lg px-4 py-3 text-xs">
           No update for {periodLabel(data.period)} yet. Use <b>Monthly update</b> to enter this month's figures.
@@ -75,6 +100,7 @@ export default function DepartmentDetail() {
       </section>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {showFin && (
         <section className={cn(card, 'xl:col-span-2')}>
           <header className="p-4 border-b border-slate-100 flex items-center justify-between">
             <div>
@@ -105,8 +131,9 @@ export default function DepartmentDetail() {
             </ResponsiveContainer>
           </div>
         </section>
+        )}
 
-        <section className={card}>
+        <section className={cn(card, !showFin && 'xl:col-span-3')}>
           <header className="p-4 border-b border-slate-100">
             <h2 className="text-sm font-bold text-slate-900">Unit head's report</h2>
             <p className="text-[11px] text-slate-500">{periodLabel(data.period)}</p>
@@ -152,7 +179,9 @@ export default function DepartmentDetail() {
         </section>
       </div>
 
-      {modal === 'update' && <UpdateForm deptId={d.id} initialPeriod={data.period} isIncome={isIncome} onClose={close} />}
+      </>)}
+
+      {modal === 'update' && <UpdateForm deptId={d.id} initialPeriod={data.period} isIncome={hasRevenue} showFin={showFin} onClose={close} />}
       {modal === 'edit' && <EditDept dept={d} onClose={close} />}
       {modal === 'kpis' && <KpiManager dept={d} onClose={close} />}
       {modal === 'issue' && <Modal title={`Raise an issue · ${d.name}`} onClose={() => close()}><IssueForm deptId={d.id} onDone={() => close(true)} /></Modal>}
@@ -185,6 +214,7 @@ function KpiCard({ k }: { k: any; key?: any }) {
           <div className="text-[11px] text-slate-500">
             Target {k.direction === 'lower' ? '≤ ' : ''}{formatValue(k.target, k.unit, true)}
           </div>
+          {k.auto && <div className="text-[10px] font-semibold text-blue-800 mt-0.5">Calculated from records</div>}
         </div>
         {change !== null && (
           <div className={cn('flex items-center gap-0.5 text-[11px] font-semibold', better ? 'text-green-800' : 'text-red-700')}>
@@ -208,7 +238,7 @@ function KpiCard({ k }: { k: any; key?: any }) {
 }
 
 // Monthly update: one form for KPI values, money, and the written report.
-function UpdateForm({ deptId, initialPeriod, isIncome, onClose }: { deptId: number; initialPeriod: string; isIncome: boolean; onClose: (reload?: boolean) => void }) {
+function UpdateForm({ deptId, initialPeriod, isIncome, showFin, onClose }: { deptId: number; initialPeriod: string; isIncome: boolean; showFin: boolean; onClose: (reload?: boolean) => void }) {
   const [period, setPeriod] = useState(initialPeriod);
   const [form, setForm] = useState<any>(null);
   const [saving, setSaving] = useState(false);
@@ -219,7 +249,7 @@ function UpdateForm({ deptId, initialPeriod, isIncome, onClose }: { deptId: numb
     fetchAPI(`/exec/departments/${deptId}?period=${period}`).then((d) => {
       const f = d.financials.find((x: any) => x.period === period);
       setForm({
-        kpis: d.department.kpis.map((k: any) => ({ kpi_id: k.id, name: k.name, unit: k.unit, target: k.target, direction: k.direction, value: k.value ?? '', note: k.note ?? '' })),
+        kpis: d.department.kpis.map((k: any) => ({ kpi_id: k.id, name: k.name, unit: k.unit, target: k.target, direction: k.direction, source: k.source, value: k.value ?? '', note: k.note ?? '' })),
         revenue: f?.revenue ?? '',
         expenses: f?.expenses ?? '',
         highlights: d.narrative?.highlights ?? '',
@@ -234,7 +264,7 @@ function UpdateForm({ deptId, initialPeriod, isIncome, onClose }: { deptId: numb
     setSaving(true);
     setError('');
     try {
-      await fetchAPI(`/exec/departments/${deptId}/update`, { method: 'POST', body: JSON.stringify({ period, ...form }) });
+      await fetchAPI(`/exec/departments/${deptId}/update`, { method: 'POST', body: JSON.stringify({ period, ...form, kpis: form.kpis.filter((k: any) => !k.source) }) });
       onClose(true);
     } catch (err: any) {
       setError(err.message);
@@ -261,13 +291,20 @@ function UpdateForm({ deptId, initialPeriod, isIncome, onClose }: { deptId: numb
                       <div className="font-semibold text-slate-800">{k.name}</div>
                       <div className="text-[10px] text-slate-500">Target {k.direction === 'lower' ? '≤ ' : ''}{formatValue(k.target, k.unit)} · unit: {k.unit === 'PHP' ? '₱' : k.unit}</div>
                     </div>
-                    <input type="number" step="any" className={cn(inputCls, 'sm:col-span-3')} placeholder="Value" value={k.value} onChange={(e) => setKpi(i, 'value', e.target.value)} />
-                    <input className={cn(inputCls, 'sm:col-span-4')} placeholder="Note (optional)" value={k.note} onChange={(e) => setKpi(i, 'note', e.target.value)} />
+                    {k.source ? (
+                      <div className="sm:col-span-7 text-xs text-slate-700 bg-blue-50 rounded-lg px-3 py-2">
+                        <b className="tabular-nums">{k.value === '' ? '—' : formatValue(Number(k.value), k.unit)}</b>
+                        <span className="text-slate-500"> · calculated from the unit's records, no need to type it</span>
+                      </div>
+                    ) : (<>
+                      <input type="number" step="any" className={cn(inputCls, 'sm:col-span-3')} placeholder="Value" value={k.value} onChange={(e) => setKpi(i, 'value', e.target.value)} />
+                      <input className={cn(inputCls, 'sm:col-span-4')} placeholder="Note (optional)" value={k.note} onChange={(e) => setKpi(i, 'note', e.target.value)} />
+                    </>)}
                   </div>
                 ))}
               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {showFin && <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {isIncome && (
                 <Field label="Revenue (₱)">
                   <input type="number" step="any" min="0" className={inputCls} value={form.revenue} onChange={(e) => setForm({ ...form, revenue: e.target.value })} />
@@ -276,7 +313,7 @@ function UpdateForm({ deptId, initialPeriod, isIncome, onClose }: { deptId: numb
               <Field label="Expenses (₱)">
                 <input type="number" step="any" min="0" className={inputCls} value={form.expenses} onChange={(e) => setForm({ ...form, expenses: e.target.value })} />
               </Field>
-            </div>
+            </div>}
             <div className="grid grid-cols-1 gap-3">
               <Field label="Highlights"><textarea rows={2} className={inputCls} value={form.highlights} onChange={(e) => setForm({ ...form, highlights: e.target.value })} /></Field>
               <Field label="Challenges"><textarea rows={2} className={inputCls} value={form.challenges} onChange={(e) => setForm({ ...form, challenges: e.target.value })} /></Field>
@@ -297,7 +334,7 @@ function UpdateForm({ deptId, initialPeriod, isIncome, onClose }: { deptId: numb
 function EditDept({ dept, onClose }: { dept: any; onClose: (reload?: boolean) => void }) {
   const [f, setF] = useState({
     head_name: dept.head_name || '', mandate: dept.mandate || '', monthly_revenue_target: dept.monthly_revenue_target ?? 0,
-    category: dept.category, reports_to: dept.reports_to,
+    category: dept.category, reports_to: dept.reports_to, finance_tracking: dept.finance_tracking || 'none',
   });
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -321,6 +358,13 @@ function EditDept({ dept, onClose }: { dept: any; onClose: (reload?: boolean) =>
             </select>
           </Field>
         </div>
+        <Field label="Money figures reported" hint="Support units that do not earn revenue usually report none.">
+          <select className={inputCls} value={f.finance_tracking} onChange={(e) => setF({ ...f, finance_tracking: e.target.value })}>
+            <option value="revenue_expenses">Revenue and expenses</option>
+            <option value="expenses">Expenses only</option>
+            <option value="none">None</option>
+          </select>
+        </Field>
         <Field label="Monthly revenue target (₱)" hint="Leave 0 for units that do not earn revenue.">
           <input type="number" min="0" step="any" className={inputCls} value={f.monthly_revenue_target} onChange={(e) => setF({ ...f, monthly_revenue_target: e.target.value as any })} />
         </Field>

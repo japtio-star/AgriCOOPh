@@ -23,6 +23,8 @@ export async function demoFetch(endpoint: string, options: RequestInit = {}) {
 
   if (!exec) {
     if (path === '/exec/overview' || path === '/exec/decisions') throw new Error('Executive access only.');
+    const kmId = r['/exec/departments']?.departments?.find((d: any) => d.code === 'KM')?.id;
+    if (path.startsWith('/km/') && Number(user.dept_id) !== kmId) throw new Error('Only the CEO and the KM unit can use this.');
     const m = path.match(/^\/exec\/departments\/(\d+)$/);
     if (m && Number(m[1]) !== Number(user.dept_id)) throw new Error('Not allowed.');
     if (path === '/exec/departments') data.departments = data.departments.filter((d: any) => d.id === Number(user.dept_id));

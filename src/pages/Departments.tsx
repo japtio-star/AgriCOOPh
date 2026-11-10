@@ -69,7 +69,7 @@ export default function Departments() {
                   <Stat label="KPIs on track" value={`${d.kpiCounts['on-track']}/${d.kpiTotal}`} />
                   {d.category === 'Income'
                     ? <Stat label="Revenue" value={`${formatPHP(d.revenue, true)}${d.revenue !== null ? ` (${pct(d.revenue, d.monthly_revenue_target)}%)` : ''}`} />
-                    : <Stat label="Expenses" value={formatPHP(d.expenses, true)} />}
+                    : <Stat label="Monthly update" value={d.submitted ? 'Submitted' : 'Missing'} />}
                   <Stat label="Open issues" value={String(d.openIssues)} />
                 </div>
               </Link>

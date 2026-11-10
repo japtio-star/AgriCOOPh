@@ -13,6 +13,7 @@ const login = async (email) => {
 
 const ceo = await login('ceo@agricooph.com');
 const head = await login('sms.head@agricooph.com');
+const kmHead = await login('km.head@agricooph.com');
 const get = async (ep) => {
   const r = await fetch(`${BASE}/api${ep}`, { headers: { authorization: `Bearer ${ceo.token}` } });
   if (!r.ok) throw new Error(`${ep}: ${r.status}`);
@@ -23,6 +24,7 @@ const responses = {};
 const grab = async (ep) => { responses[ep] = await get(ep); return responses[ep]; };
 
 for (const ep of ['/dashboard', '/members', '/cooperatives', '/reports', '/exec/issues', '/exec/decisions']) await grab(ep);
+for (const ep of ['/km/options', '/km/products', '/km/disseminations', '/km/requests', '/km/prices', '/km/data-quality']) await grab(ep);
 const overview = await grab('/exec/overview');
 const depts = await grab('/exec/departments');
 const [y, m] = overview.period.split('-').map(Number);
@@ -34,5 +36,5 @@ for (const d of depts.departments) {
   for (const p of periods) await grab(`/exec/departments/${d.id}?period=${p}`);
 }
 
-fs.writeFileSync('src/demo-data.json', JSON.stringify({ responses, users: [ceo.user, head.user] }));
+fs.writeFileSync('src/demo-data.json', JSON.stringify({ responses, users: [ceo.user, head.user, kmHead.user] }));
 console.log(`Saved ${Object.keys(responses).length} responses to src/demo-data.json`);

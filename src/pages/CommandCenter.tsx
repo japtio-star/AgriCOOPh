@@ -56,7 +56,7 @@ export default function CommandCenter() {
         <Tile label="Revenue this month" value={formatPHP(t.revenue, true)}
           sub={revVsTarget !== null ? `${revVsTarget}% of ${formatPHP(t.revenueTarget, true)} target` : undefined}
           delta={revChange} deltaLabel="vs last month" />
-        <Tile label="Net income this month" value={formatPHP(net, true)} sub={`Expenses ${formatPHP(t.expenses, true)}`} negative={net < 0} />
+        <Tile label="Net income this month" value={formatPHP(net, true)} sub={`Income services · expenses ${formatPHP(t.expenses, true)}`} negative={net < 0} />
         <Tile label="Revenue year to date" value={formatPHP(t.ytdRevenue, true)}
           sub={`${pct(t.ytdRevenue, t.ytdRevenueTarget) ?? '—'}% of ${formatPHP(t.ytdRevenueTarget, true)} target · net ${formatPHP(ytdNet, true)}`} />
         <Tile label="Monthly updates in" value={`${t.submitted} / ${t.departments}`}
@@ -172,7 +172,7 @@ export default function CommandCenter() {
         <section className={card}>
           <header className="p-4 border-b border-slate-100">
             <h2 className="text-sm font-bold text-slate-900">Net income (revenue − expenses)</h2>
-            <p className="text-[11px] text-slate-500">All departments, last 12 months</p>
+            <p className="text-[11px] text-slate-500">Income services, last 12 months</p>
           </header>
           <div className="h-80 p-4">
             <ResponsiveContainer width="100%" height="100%">

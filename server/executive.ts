@@ -4,6 +4,7 @@
 import type { Express, RequestHandler } from "express";
 import type Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
+import { initKmSchema, seedKmDemo, kmKpiValue } from "./km";
 
 type DB = Database.Database;
 
@@ -81,6 +82,7 @@ function createTables(db: DB) {
       head_name TEXT,
       mandate TEXT,
       monthly_revenue_target REAL DEFAULT 0,
+      finance_tracking TEXT NOT NULL DEFAULT 'expenses',
       sort_order INTEGER DEFAULT 0
     );
 
@@ -94,6 +96,7 @@ function createTables(db: DB) {
       description TEXT,
       sort_order INTEGER DEFAULT 0,
       active INTEGER NOT NULL DEFAULT 1,
+      source TEXT,
       FOREIGN KEY(dept_id) REFERENCES Departments(id)
     );
 
@@ -171,7 +174,8 @@ function createTables(db: DB) {
 }
 
 // ---------- Seed: org structure (always) and demo figures (optional) ----------
-type KpiSeed = [name: string, unit: string, target: number, direction: "higher" | "lower", description: string];
+// source: KPIs calculated from records (e.g. KM library) instead of typed in each month.
+type KpiSeed = [name: string, unit: string, target: number, direction: "higher" | "lower", description: string, source?: string];
 type DeptSeed = {
   code: string; name: string; category: "Income" | "Support"; reports_to: "CEO" | "COO";
   mandate: string; revenueTarget: number; expenseRatio: number; performance: number; kpis: KpiSeed[];
@@ -262,9 +266,11 @@ const DEPARTMENTS: DeptSeed[] = [
     mandate: "Store, disseminate, monitor and analyse information.",
     revenueTarget: 0, expenseRatio: 0, performance: 1.0,
     kpis: [
-      ["Knowledge products published", "count", 4, "higher", "Briefs, guides and reports published"],
-      ["Data/analysis requests served", "count", 8, "higher", "Requests answered for units or members"],
-      ["Member data completeness", "%", 85, "higher", "Required member data fields filled"],
+      ["Knowledge products published", "count", 2, "higher", "Guides, bulletins, briefs and other products published this month", "km.products_published"],
+      ["Information requests answered", "count", 2, "higher", "Requests from units, member coops and partners answered this month", "km.requests_served"],
+      ["People reached with knowledge products", "count", 1200, "higher", "Total reach of all dissemination activities this month", "km.people_reached"],
+      ["Average days to answer a request", "days", 5, "lower", "From request received to answer sent", "km.request_turnaround"],
+      ["Member data completeness", "%", 85, "higher", "Share of member records with birthdate, gender and contact filled", "km.member_data_completeness"],
     ],
   },
   {
@@ -302,15 +308,16 @@ function seed(db: DB) {
   const deptCount = (db.prepare("SELECT count(*) AS c FROM Departments").get() as any).c;
   if (deptCount === 0) {
     const insDept = db.prepare(
-      "INSERT INTO Departments (code, name, category, reports_to, mandate, monthly_revenue_target, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO Departments (code, name, category, reports_to, mandate, monthly_revenue_target, sort_order, finance_tracking) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     );
     const insKpi = db.prepare(
-      "INSERT INTO KPIs (dept_id, name, unit, target, direction, description, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO KPIs (dept_id, name, unit, target, direction, description, sort_order, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     );
     db.transaction(() => {
       DEPARTMENTS.forEach((d, i) => {
-        const id = insDept.run(d.code, d.name, d.category, d.reports_to, d.mandate, d.revenueTarget, i).lastInsertRowid;
-        d.kpis.forEach((k, j) => insKpi.run(id, k[0], k[1], k[2], k[3], k[4], j));
+        const id = insDept.run(d.code, d.name, d.category, d.reports_to, d.mandate, d.revenueTarget, i,
+          d.category === "Income" ? "revenue_expenses" : "none").lastInsertRowid;
+        d.kpis.forEach((k, j) => insKpi.run(id, k[0], k[1], k[2], k[3], k[4], j, k[5] ?? null));
       });
       db.prepare("INSERT OR IGNORE INTO OrgSettings (key, value) VALUES ('coo_name', ''), ('demo_data', '0')").run();
     })();
@@ -322,10 +329,38 @@ function seed(db: DB) {
   const smsId = (db.prepare("SELECT id FROM Departments WHERE code = 'SMS'").get() as any)?.id;
   insUser.run("Chief Executive Officer", "ceo@agricooph.com", hashed, "Executive", null);
   insUser.run("SMS Unit Head", "sms.head@agricooph.com", hashed, "Department Head", smsId ?? null);
+  const kmId = (db.prepare("SELECT id FROM Departments WHERE code = 'KM'").get() as any)?.id;
+  insUser.run("KM Unit Head", "km.head@agricooph.com", hashed, "Department Head", kmId ?? null);
 
+  if (process.env.SEED_DEMO_DATA === "false") return;
   const hasEntries = (db.prepare("SELECT count(*) AS c FROM KPIEntries").get() as any).c > 0;
-  if (hasEntries || process.env.SEED_DEMO_DATA === "false") return;
-  seedDemoFigures(db);
+  if (!hasEntries) seedDemoFigures(db);
+  if ((db.prepare("SELECT value FROM OrgSettings WHERE key = 'demo_data'").get() as any)?.value === "1") seedKmDemo(db);
+}
+
+// Bring databases created by earlier versions up to date.
+function migrateColumns(db: DB) {
+  const cols = (table: string) => (db.prepare(`PRAGMA table_info(${table})`).all() as any[]).map((c) => c.name);
+  if (!cols("Departments").includes("finance_tracking")) {
+    db.exec(`ALTER TABLE Departments ADD COLUMN finance_tracking TEXT NOT NULL DEFAULT 'expenses';
+      UPDATE Departments SET finance_tracking = CASE category WHEN 'Income' THEN 'revenue_expenses' ELSE 'none' END;`);
+  }
+  if (!cols("KPIs").includes("source")) db.exec("ALTER TABLE KPIs ADD COLUMN source TEXT");
+
+  // KM KPIs that are now calculated from KM records.
+  const km = db.prepare("SELECT id FROM Departments WHERE code = 'KM'").get() as any;
+  const def = DEPARTMENTS.find((d) => d.code === "KM");
+  if (!km || !def) return;
+  const oldNames: Record<string, string[]> = { "km.requests_served": ["Data/analysis requests served"] };
+  def.kpis.forEach((k, j) => {
+    const source = k[5]!;
+    if (db.prepare("SELECT 1 FROM KPIs WHERE dept_id = ? AND source = ?").get(km.id, source)) return;
+    const names = [k[0], ...(oldNames[source] || [])];
+    const existing = db.prepare(`SELECT id FROM KPIs WHERE dept_id = ? AND name IN (${names.map(() => "?").join(",")})`).get(km.id, ...names) as any;
+    if (existing) db.prepare("UPDATE KPIs SET source = ?, name = ?, description = ? WHERE id = ?").run(source, k[0], k[4], existing.id);
+    else db.prepare("INSERT INTO KPIs (dept_id, name, unit, target, direction, description, sort_order, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(km.id, k[0], k[1], k[2], k[3], k[4], j, source);
+  });
 }
 
 function seedDemoFigures(db: DB) {
@@ -349,6 +384,7 @@ function seedDemoFigures(db: DB) {
         if (dept.code === "SHS" && idx === periods.length - 1) return;
         const trend = 0.9 + (idx / periods.length) * 0.12; // gentle improvement over the year
         for (const k of kpis) {
+          if (k.source) continue; // calculated from records
           let perf = def.performance * trend * (0.92 + rand() * 0.16);
           if (k.direction === "lower") perf = 1 / perf;
           // Credit: portfolio at risk worsens in recent months, so it shows as off track.
@@ -361,11 +397,9 @@ function seedDemoFigures(db: DB) {
         }
         const seasonal = 1 + 0.15 * Math.sin((idx / 12) * Math.PI * 2);
         const revenue = Math.round(def.revenueTarget * def.performance * trend * seasonal * (0.9 + rand() * 0.2));
-        const expenses =
-          def.category === "Income"
-            ? Math.round(revenue * def.expenseRatio * (0.95 + rand() * 0.1))
-            : Math.round((60_000 + rand() * 30_000) * (dept.code === "SHS" ? 1.5 : 1));
-        insFin.run(dept.id, period, revenue, expenses);
+        if (dept.finance_tracking === "revenue_expenses") {
+          insFin.run(dept.id, period, revenue, Math.round(revenue * def.expenseRatio * (0.95 + rand() * 0.1)));
+        }
         if (idx === periods.length - 1) {
           insUpd.run(dept.id, period, "Demo: key activities completed this month.", "Demo: main challenge this month.", "");
         }
@@ -398,6 +432,8 @@ function seedDemoFigures(db: DB) {
 export function initExecutive(db: DB) {
   migrateUsers(db);
   createTables(db);
+  initKmSchema(db);
+  migrateColumns(db);
   seed(db);
 }
 
@@ -424,9 +460,21 @@ function deptSummary(db: DB, dept: any, period: string) {
       ORDER BY k.sort_order, k.id`
   ).all(period, shiftPeriod(period, -1), dept.id) as any[];
 
-  const withStatus = kpis.map((k) => ({ ...k, status: kpiStatus(k.value, k.target, k.direction) }));
+  // KPIs with a source are calculated from records when nobody typed a value.
+  const withStatus = kpis.map((k) => {
+    let value = k.value;
+    let prev = k.prev_value;
+    let auto = false;
+    if (k.source) {
+      if (value === null) { value = kmKpiValue(db, k.source, period); auto = value !== null; }
+      if (prev === null) prev = kmKpiValue(db, k.source, shiftPeriod(period, -1));
+    }
+    return { ...k, value, prev_value: prev, auto, manual: k.value !== null, status: kpiStatus(value, k.target, k.direction) };
+  });
   const reported = withStatus.filter((k) => k.status !== "no-data");
-  const fin = db.prepare("SELECT revenue, expenses FROM DeptFinancials WHERE dept_id = ? AND period = ?").get(dept.id, period) as any;
+  const tracking = dept.finance_tracking || "expenses";
+  const fin = tracking === "none" ? null
+    : db.prepare("SELECT revenue, expenses FROM DeptFinancials WHERE dept_id = ? AND period = ?").get(dept.id, period) as any;
   const update = db.prepare("SELECT submitted_at FROM DeptUpdates WHERE dept_id = ? AND period = ?").get(dept.id, period) as any;
 
   let status: Status | "no-update" = "no-update";
@@ -443,9 +491,9 @@ function deptSummary(db: DB, dept: any, period: string) {
     kpiCounts: counts,
     kpiTotal: withStatus.length,
     kpis: withStatus,
-    revenue: fin?.revenue ?? null,
+    revenue: tracking === "revenue_expenses" ? fin?.revenue ?? null : null,
     expenses: fin?.expenses ?? null,
-    submitted: reported.length > 0 || !!fin,
+    submitted: withStatus.some((k) => k.manual) || !!fin || !!update,
     narrativeSubmitted: !!update,
     openIssues,
   };
@@ -480,15 +528,18 @@ export function registerExecutiveRoutes(app: Express, db: DB, auth: RequestHandl
     const year = period.slice(0, 4);
     const ytd = db.prepare(
       `SELECT coalesce(sum(f.revenue),0) AS revenue, coalesce(sum(f.expenses),0) AS expenses
-         FROM DeptFinancials f WHERE f.period BETWEEN ? AND ?`
+         FROM DeptFinancials f JOIN Departments d ON d.id = f.dept_id
+        WHERE d.finance_tracking != 'none' AND f.period BETWEEN ? AND ?`
     ).get(`${year}-01`, period) as any;
     const monthsElapsed = Number(period.slice(5, 7));
-    const prev = db.prepare("SELECT coalesce(sum(revenue),0) AS r FROM DeptFinancials WHERE period = ?").get(shiftPeriod(period, -1)) as any;
+    const prev = db.prepare(
+      "SELECT coalesce(sum(f.revenue),0) AS r FROM DeptFinancials f JOIN Departments d ON d.id = f.dept_id WHERE d.finance_tracking != 'none' AND f.period = ?"
+    ).get(shiftPeriod(period, -1)) as any;
 
     const trendPeriods = periodRange(period, 12);
     const finRows = db.prepare(
       `SELECT d.code, f.period, f.revenue, f.expenses FROM DeptFinancials f JOIN Departments d ON d.id = f.dept_id
-        WHERE f.period BETWEEN ? AND ?`
+        WHERE d.finance_tracking != 'none' AND f.period BETWEEN ? AND ?`
     ).all(trendPeriods[0], period) as any[];
     const revenueTrend = trendPeriods.map((p) => {
       const row: any = { period: p, expenses: 0, revenue: 0 };
@@ -594,7 +645,10 @@ export function registerExecutiveRoutes(app: Express, db: DB, auth: RequestHandl
     ).all(dept.id, range[0], period) as any[];
     const kpis = summary.kpis.map((k: any) => ({
       ...k,
-      history: range.map((p) => ({ period: p, value: history.find((h) => h.kpi_id === k.id && h.period === p)?.value ?? null })),
+      history: range.map((p) => ({
+        period: p,
+        value: history.find((h) => h.kpi_id === k.id && h.period === p)?.value ?? (k.source ? kmKpiValue(db, k.source, p) : null),
+      })),
     }));
     const finRows = db.prepare("SELECT * FROM DeptFinancials WHERE dept_id = ? AND period BETWEEN ? AND ?").all(dept.id, range[0], period) as any[];
     const financials = range.map((p) => {
@@ -610,14 +664,15 @@ export function registerExecutiveRoutes(app: Express, db: DB, auth: RequestHandl
 
   // Edit department profile (executive only)
   app.put("/api/exec/departments/:id", auth, requireExec, (req: any, res) => {
-    const { head_name, mandate, monthly_revenue_target, reports_to, category } = req.body;
+    const { head_name, mandate, monthly_revenue_target, reports_to, category, finance_tracking } = req.body;
     if (reports_to && !["CEO", "COO"].includes(reports_to)) return res.status(400).json({ error: "Invalid reporting line." });
+    if (finance_tracking && !["revenue_expenses", "expenses", "none"].includes(finance_tracking)) return res.status(400).json({ error: "Invalid finance setting." });
     if (category && !["Income", "Support"].includes(category)) return res.status(400).json({ error: "Invalid category." });
     db.prepare(
       `UPDATE Departments SET head_name = coalesce(?, head_name), mandate = coalesce(?, mandate),
          monthly_revenue_target = coalesce(?, monthly_revenue_target), reports_to = coalesce(?, reports_to),
-         category = coalesce(?, category) WHERE id = ?`
-    ).run(head_name ?? null, mandate ?? null, monthly_revenue_target ?? null, reports_to ?? null, category ?? null, req.params.id);
+         category = coalesce(?, category), finance_tracking = coalesce(?, finance_tracking) WHERE id = ?`
+    ).run(head_name ?? null, mandate ?? null, monthly_revenue_target ?? null, reports_to ?? null, category ?? null, finance_tracking ?? null, req.params.id);
     log(req.user.id, `Updated department ${req.params.id}`);
     res.json({ ok: true });
   });
@@ -628,6 +683,8 @@ export function registerExecutiveRoutes(app: Express, db: DB, auth: RequestHandl
     if (!canEditDept(req.user, deptId)) return res.status(403).json({ error: "Not allowed." });
     const { period, kpis = [], revenue, expenses, highlights, challenges, support_needed } = req.body;
     if (!isPeriod(period)) return res.status(400).json({ error: "Period must be YYYY-MM." });
+    const dept = db.prepare("SELECT finance_tracking FROM Departments WHERE id = ?").get(deptId) as any;
+    if (!dept) return res.status(404).json({ error: "Department not found." });
 
     const validKpi = db.prepare("SELECT id FROM KPIs WHERE id = ? AND dept_id = ?");
     const upsertEntry = db.prepare(
@@ -647,11 +704,12 @@ export function registerExecutiveRoutes(app: Express, db: DB, auth: RequestHandl
             upsertEntry.run(k.kpi_id, period, v, k.note || null, req.user.id);
           }
         }
-        if ((revenue !== undefined && revenue !== "") || (expenses !== undefined && expenses !== "")) {
+        const hasMoney = (revenue !== undefined && revenue !== "") || (expenses !== undefined && expenses !== "");
+        if (dept.finance_tracking !== "none" && hasMoney) {
           db.prepare(
             `INSERT INTO DeptFinancials (dept_id, period, revenue, expenses) VALUES (?, ?, ?, ?)
              ON CONFLICT(dept_id, period) DO UPDATE SET revenue = excluded.revenue, expenses = excluded.expenses, updated_at = CURRENT_TIMESTAMP`
-          ).run(deptId, period, Number(revenue) || 0, Number(expenses) || 0);
+          ).run(deptId, period, dept.finance_tracking === "revenue_expenses" ? Number(revenue) || 0 : 0, Number(expenses) || 0);
         }
         if (highlights || challenges || support_needed) {
           db.prepare(

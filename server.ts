@@ -8,6 +8,7 @@ import path from "path";
 import multer from "multer";
 import fs from "fs";
 import { initExecutive, registerExecutiveRoutes, isExec } from "./server/executive";
+import { registerKmRoutes } from "./server/km";
 
 // Initialize SQLite database
 const db = new Database('amds.db', { verbose: console.log });
@@ -263,6 +264,7 @@ async function startServer() {
 
   // Executive management layer (CEO command center, departments, issues, decisions)
   registerExecutiveRoutes(app, db, authenticateToken);
+  registerKmRoutes(app, db, authenticateToken, isExec);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
